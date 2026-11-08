@@ -1,5 +1,2 @@
-if [ -f node_modules/lintlane/bin/pre-commit.mjs ]; then
-  node node_modules/lintlane/bin/pre-commit.mjs
-else
-  echo "lintlane: node_modules/lintlane not found; skipping staged-file checks. Run your package manager's install." >&2
-fi
+[ -f node_modules/lintlane/bin/cli.mjs ] || { echo "lintlane: node_modules/lintlane not found; skipping pre-commit. Run your package manager's install." >&2; exit 0; }
+node node_modules/lintlane/bin/cli.mjs hook pre-commit "$@"

@@ -4,13 +4,17 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { resolveChecks } from "./checks.mjs";
 import { binPath, resolveBiome, runInherit, runProcess } from "./proc.mjs";
 import {
+  COMMITIZEN_PATH,
+  classifyHook,
   detectPackageManager,
   detectPreset,
-  hasUnsafeRestaging,
+  hasCommitlintConfig,
+  hasLintStagedConfig,
   installCommand,
-  isLegacyPreCommit,
+  LINT_STAGED_CONFIG,
   PRESET_PATHS,
   renderWorkflow,
   runnerCommand,
@@ -36,11 +40,14 @@ Commands:
   check [paths]     Run biome check (defaults to .)
   check:fix [paths] Run biome check --write (defaults to .)
   ci [paths]        Run biome ci --reporter=github (defaults to .)
-  commit [options]  Guided commit (alias: c): asks step by step, then commits as a
-                    Conventional Commit. Flags: --dry-run, --retry, --no-retry,
-                    --write-message-to-file <f>, -l <n>; git flags go after --
-  check-commit      Validate commit messages (--message, --commit-msg-file,
-                    --rev-range, -d, --allow-abort, --allowed-prefixes, -l)
+  run [checks]      Run the project's checks (Biome, typecheck, build, tests) in
+                    order, the same list CI and the dashboard use. Flags:
+                    --keep-going (don't stop at the first failure), --list
+  doctor [--json]   Diagnose the setup: tools, hooks, configs, CI. Read-only
+  commit [options]  Guided Conventional Commit (alias: c), run by Commitizen;
+                    git flags go after --
+  check-commit      Validate commit messages with commitlint (--message,
+                    --commit-msg-file, --rev-range, -d)
   ui [options]      Open the local dashboard: run checks, review errors and
                     proposed fixes as a diff, apply fixes per file
 
@@ -53,6 +60,7 @@ init options:
   --no-hooks                   Skip husky + pre-commit hook setup
   --no-commit-lint             Skip the commit-message hooks (commit-msg, prepare-commit-msg, pre-push)
   --no-ci                      Skip the GitHub Actions workflow
+  --dry-run                    Show everything init would do; change nothing
   --skip-install                Print install commands instead of running them
   -h, --help                   Show this help
 
@@ -102,6 +110,10 @@ const { values, positionals } = parseArgs({
     "no-ci": { type: "boolean", default: false },
     "no-commit-lint": { type: "boolean", default: false },
     "skip-install": { type: "boolean", default: false },
+    "dry-run": { type: "boolean", default: false },
+    json: { type: "boolean", default: false },
+    "keep-going": { type: "boolean", default: false },
+    list: { type: "boolean", default: false },
     port: { type: "string" },
     "no-open": { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
@@ -140,6 +152,71 @@ if (command === "check-commit") {
   process.exit(await main(commandArgs, cwd));
 }
 
+if (command === "doctor") {
+  const { formatReport, runDoctor } = await import("./doctor.mjs");
+  const report = await runDoctor({ cwd, kitDir: KIT_DIR });
+  console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report));
+  process.exit(report.ok ? 0 : 1);
+}
+
+if (command === "hook") {
+  const { runHook } = await import("./hook.mjs");
+  const at = rawArgs.indexOf("hook");
+  const [name, ...hookArgs] = rawArgs.slice(at + 1);
+  process.exit(await runHook(name, hookArgs, cwd));
+}
+
+if (command === "run") {
+  const biome = resolveBiome(cwd);
+  if (!biome) fail(`Biome isn't installed in this project. Run: ${RUNNER} ${KIT_NAME} init`);
+  const pkg = existsSync(join(cwd, "package.json"))
+    ? await readJson(join(cwd, "package.json"))
+    : {};
+  const { steps, problems } = resolveChecks({
+    cwd,
+    biome,
+    pmName: detectPackageManager(cwd, pkg).name,
+    pkg,
+  });
+  for (const problem of problems) warn(problem);
+  if (values.list) {
+    for (const step of steps) {
+      console.log(`${step.id.padEnd(10)} ${step.defaultOn ? "on " : "off"}  ${step.display}`);
+    }
+    process.exit(0);
+  }
+  const wanted = positionals.slice(1);
+  const unknown = wanted.filter((id) => !steps.some((step) => step.id === id));
+  if (unknown.length)
+    fail(`Unknown check: ${unknown.join(", ")}. Available: ${steps.map((st) => st.id).join(", ")}`);
+  const chosen = wanted.length
+    ? steps.filter((step) => wanted.includes(step.id))
+    : steps.filter((step) => step.defaultOn);
+  if (chosen.length === 0) fail("No checks to run.");
+  const { runCiSteps } = await import("./checks.mjs");
+  const results = [];
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  await runCiSteps({
+    cwd,
+    steps: chosen,
+    stopOnFail: !values["keep-going"],
+    send: (event) => {
+      if (event.type === "start")
+        console.log(`▶ ${byId.get(event.id).label}  (${byId.get(event.id).display})`);
+      else if (event.type === "log") process.stdout.write(event.text);
+      else if (event.type === "end") {
+        results.push(event);
+        console.log(
+          `${event.code === 0 ? "✔" : "✘"} ${byId.get(event.id).label} (${(event.ms / 1000).toFixed(1)}s)`,
+        );
+      } else if (event.type === "skip") console.log(`- skipped ${byId.get(event.id).label}`);
+    },
+  });
+  process.exit(
+    results.every((result) => result.code === 0) && results.length === chosen.length ? 0 : 1,
+  );
+}
+
 if (command === "ui") {
   const biome = resolveBiome(cwd);
   if (!biome) {
@@ -166,7 +243,7 @@ if (command === "ui") {
 
 if (command !== "init") {
   fail(
-    `Unknown command "${command}". Usage: ${RUNNER} ${KIT_NAME} <init|check|check:fix|ci|commit|check-commit|ui> [options]`,
+    `Unknown command "${command}". Usage: ${RUNNER} ${KIT_NAME} <init|check|check:fix|ci|run|doctor|commit|check-commit|ui> [options]`,
   );
 }
 
@@ -196,16 +273,38 @@ if (preset === undefined) {
   }
 }
 
+const dryRun = values["dry-run"];
+if (dryRun) console.log("Dry run: nothing will be changed.\n");
+
+// Every change goes through act(): in a dry run it only says what it would do.
+async function act(message, fn) {
+  if (dryRun) {
+    console.log(`+ would ${message}`);
+    return;
+  }
+  await fn();
+  ok(message[0].toUpperCase() + message.slice(1));
+}
+
 // LINTLANE_INSTALL_SPEC lets you install lintlane from somewhere other than the
 // registry (a tarball from `npm pack`, a local folder) when testing a build.
 const kitSpec = process.env.LINTLANE_INSTALL_SPEC || `${KIT_NAME}@${KIT_VERSION}`;
-const devPackages = ["@biomejs/biome", kitSpec];
-if (!values["no-hooks"]) devPackages.push("husky");
-const installArgv = installCommand(pmName, devPackages);
+const declared = { ...pkg.dependencies, ...pkg.devDependencies };
+// Only install what's missing, so an existing Biome or husky version is never bumped.
+const devPackages = [];
+if (!("@biomejs/biome" in declared)) devPackages.push("@biomejs/biome");
+if (process.env.LINTLANE_INSTALL_SPEC || declared[KIT_NAME] !== KIT_VERSION)
+  devPackages.push(kitSpec);
+if (!values["no-hooks"] && !("husky" in declared)) devPackages.push("husky");
 
-if (values["skip-install"]) {
-  warn(`Skipped install. Run: ${installArgv.join(" ")}`);
+if (devPackages.length === 0) {
+  ok("Dependencies already installed");
+} else if (values["skip-install"] || dryRun) {
+  const argv = installCommand(pmName, devPackages).join(" ");
+  if (dryRun) console.log(`+ would run: ${argv}`);
+  else warn(`Skipped install. Run: ${argv}`);
 } else {
+  const installArgv = installCommand(pmName, devPackages);
   const install = await runProcess(installArgv[0], installArgv.slice(1), { cwd });
   if (install.code !== 0) {
     const reason =
@@ -228,7 +327,7 @@ const biomeJsoncPath = join(cwd, "biome.jsonc");
 const extendsSpecifier = `${KIT_NAME}/${PRESET_PATHS[preset]}`;
 
 if (existsSync(biomeJsonPath) || existsSync(biomeJsoncPath)) {
-  warn(`biome.json already exists — add this to its "extends": "${extendsSpecifier}"`);
+  warn(`biome.json already exists — make sure its "extends" includes "${extendsSpecifier}"`);
 } else {
   const config = {
     $schema: "./node_modules/@biomejs/biome/configuration_schema.json",
@@ -237,45 +336,86 @@ if (existsSync(biomeJsonPath) || existsSync(biomeJsoncPath)) {
   if (preset === "next") {
     config.files = { includes: ["**", "!**/.next", "!**/out", "!**/next-env.d.ts"] };
   }
-  await writeFile(biomeJsonPath, `${JSON.stringify(config, null, 2)}\n`);
-  ok(`Wrote biome.json (extends ${extendsSpecifier})`);
+  await act(`write biome.json (extends ${extendsSpecifier})`, () =>
+    writeFile(biomeJsonPath, `${JSON.stringify(config, null, 2)}\n`),
+  );
 }
 
+// package.json: scripts, lint-staged, Commitizen. Only ever adds what's missing.
 pkg.scripts ??= {};
-let pkgChanged = false;
-
-if (!pkg.scripts.check) {
-  pkg.scripts.check = "biome check .";
-  pkgChanged = true;
-  ok('Added script "check"');
-} else {
-  warn('Script "check" already exists — left untouched');
-}
-
-if (!pkg.scripts["check:fix"]) {
-  pkg.scripts["check:fix"] = "biome check --write .";
-  pkgChanged = true;
-  ok('Added script "check:fix"');
-} else {
-  warn('Script "check:fix" already exists — left untouched');
-}
+const pkgEdits = [];
+const addScript = (name, value) => {
+  if (!pkg.scripts[name]) {
+    pkgEdits.push(() => {
+      pkg.scripts[name] = value;
+    });
+    return `add script "${name}"`;
+  }
+  warn(`Script "${name}" already exists — left untouched`);
+  return null;
+};
+const pending = [
+  addScript("check", "biome check ."),
+  addScript("check:fix", "biome check --write ."),
+];
 
 if (!values["no-hooks"]) {
-  if (!pkg.scripts.prepare) {
-    pkg.scripts.prepare = "husky";
-    pkgChanged = true;
-    ok('Added script "prepare"');
-  } else if (!pkg.scripts.prepare.includes("husky")) {
-    pkg.scripts.prepare = `${pkg.scripts.prepare} && husky`;
-    pkgChanged = true;
-    ok('Appended husky to existing "prepare" script');
+  if (!pkg.scripts.prepare) pending.push(addScript("prepare", "husky"));
+  else if (!pkg.scripts.prepare.includes("husky")) {
+    pkgEdits.push(() => {
+      pkg.scripts.prepare = `${pkg.scripts.prepare} && husky`;
+    });
+    pending.push('append husky to the existing "prepare" script');
   } else {
     warn('Script "prepare" already runs husky — left untouched');
   }
+
+  if (hasLintStagedConfig(cwd, pkg)) {
+    warn("lint-staged is already configured — left untouched");
+  } else {
+    pkgEdits.push(() => {
+      pkg["lint-staged"] = LINT_STAGED_CONFIG;
+    });
+    pending.push('add "lint-staged" config (Biome on staged files)');
+  }
 }
 
-if (pkgChanged) {
+if (!values["no-commit-lint"]) {
+  if (pkg.config?.commitizen?.path) {
+    warn("Commitizen is already configured — left untouched");
+  } else {
+    pkgEdits.push(() => {
+      pkg.config = {
+        ...pkg.config,
+        commitizen: { ...pkg.config?.commitizen, path: COMMITIZEN_PATH },
+      };
+    });
+    pending.push('add "config.commitizen" (guided commits)');
+  }
+}
+
+for (const message of pending.filter(Boolean)) {
+  if (dryRun) console.log(`+ would ${message} in package.json`);
+}
+if (pkgEdits.length > 0 && !dryRun) {
+  for (const edit of pkgEdits) edit();
   await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  for (const message of pending.filter(Boolean))
+    ok(`${message[0].toUpperCase()}${message.slice(1)}`);
+}
+
+// commitlint config
+if (!values["no-commit-lint"]) {
+  if (hasCommitlintConfig(cwd, pkg)) {
+    warn("commitlint is already configured — left untouched");
+  } else {
+    await act("write commitlint.config.mjs", () =>
+      writeFile(
+        join(cwd, "commitlint.config.mjs"),
+        'export { default } from "lintlane/commitlint";\n',
+      ),
+    );
+  }
 }
 
 if (!values["no-hooks"]) {
@@ -291,30 +431,33 @@ if (!values["no-hooks"]) {
     for (const hook of hooks) {
       const hookPath = join(huskyDir, hook);
       const template = await readFile(join(KIT_DIR, "templates", hook), "utf8");
-      if (existsSync(hookPath)) {
-        const existing = await readFile(hookPath, "utf8");
-        if (hook === "pre-commit" && isLegacyPreCommit(existing)) {
-          // The pre-2.6 hook re-staged files with `git update-index --again`, which also
-          // stages unstaged hunks of partially staged files. It's ours and untouched, so replace it.
-          await writeFile(hookPath, template);
-          await chmod(hookPath, 0o755);
-          ok("Replaced .husky/pre-commit (the old one could stage changes you hadn't staged)");
-          wroteHook = true;
-        } else if (hook === "pre-commit" && hasUnsafeRestaging(existing)) {
-          warn(
-            ".husky/pre-commit runs `git update-index --again`, which can stage changes you didn't stage. " +
-              "Replace its contents with node_modules/lintlane/templates/pre-commit (or delete it and re-run init).",
-          );
-        } else {
-          warn(`.husky/${hook} already exists — left untouched`);
-        }
+      const writeHook = async () => {
+        await mkdir(huskyDir, { recursive: true });
+        await writeFile(hookPath, template);
+        await chmod(hookPath, 0o755);
+        wroteHook = true;
+      };
+      if (!existsSync(hookPath)) {
+        await act(`write .husky/${hook}`, writeHook);
         continue;
       }
-      await mkdir(huskyDir, { recursive: true });
-      await writeFile(hookPath, template);
-      await chmod(hookPath, 0o755);
-      ok(`Wrote .husky/${hook}`);
-      wroteHook = true;
+      const state = classifyHook(hook, await readFile(hookPath, "utf8"), template);
+      if (state === "current") {
+        ok(`.husky/${hook} is up to date`);
+      } else if (state === "legacy") {
+        // Untouched hook from an older lintlane; the files it called are gone.
+        await act(`upgrade .husky/${hook} (the old one is from an earlier lintlane)`, writeHook);
+      } else if (state === "stale" || state === "unsafe") {
+        warn(
+          `.husky/${hook} was edited and still calls files lintlane no longer ships` +
+            (state === "unsafe"
+              ? " (and `git update-index --again` can stage changes you didn't stage)"
+              : "") +
+            `. Replace its contents with node_modules/lintlane/templates/${hook}.`,
+        );
+      } else {
+        warn(`.husky/${hook} already exists — left untouched`);
+      }
     }
 
     if (wroteHook) {
@@ -330,6 +473,8 @@ if (!values["no-hooks"]) {
           warn(`husky binary not found at ${husky} — run it manually once installed`);
         }
       }
+    } else if (dryRun) {
+      console.log("+ would run husky to point git at .husky");
     }
   }
 }
@@ -338,13 +483,25 @@ if (!values["no-ci"]) {
   const workflowsDir = join(cwd, ".github", "workflows");
   const ciPath = join(workflowsDir, "biome.yml");
   if (existsSync(ciPath)) {
-    warn(".github/workflows/biome.yml already exists — left untouched");
+    warn(
+      ".github/workflows/biome.yml already exists — left untouched (run `lintlane doctor` to compare it with your checks)",
+    );
   } else {
     const withCommitCheck = !values["no-commit-lint"] && !values["no-hooks"];
-    await mkdir(workflowsDir, { recursive: true });
-    await writeFile(ciPath, renderWorkflow({ pmName, kitName: KIT_NAME, withCommitCheck }));
-    ok("Wrote .github/workflows/biome.yml");
+    const biomeArgv = resolveBiome(cwd) ?? ["biome"];
+    const { steps: checks } = resolveChecks({ cwd, biome: biomeArgv, pmName, pkg });
+    await act("write .github/workflows/biome.yml", async () => {
+      await mkdir(workflowsDir, { recursive: true });
+      await writeFile(
+        ciPath,
+        renderWorkflow({ pmName, kitName: KIT_NAME, withCommitCheck, checks }),
+      );
+    });
   }
 }
 
-console.log(`\nRun: ${pmName} run check:fix`);
+console.log(
+  dryRun
+    ? "\nDry run finished. Run again without --dry-run to apply."
+    : `\nRun: ${pmName} run check:fix   (and \`${RUNNER} ${KIT_NAME} doctor\` to verify the setup)`,
+);

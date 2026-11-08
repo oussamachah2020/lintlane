@@ -18,6 +18,7 @@ import {
   fakePackageManagers,
   git,
   gitOut,
+  KIT_BIOME,
   KIT_DIR,
   noBunEnv,
   read,
@@ -55,13 +56,21 @@ describe("runs on Node.js without Bun", () => {
 
   it("starts with a Node shebang and declares a Node engine, not a Bun one", () => {
     assert.equal(readFileSync(CLI, "utf8").split("\n")[0], "#!/usr/bin/env node");
-    assert.equal(
-      readFileSync(join(KIT_DIR, "bin", "pre-commit.mjs"), "utf8").split("\n")[0],
-      "#!/usr/bin/env node",
-    );
     assert.match(KIT_PKG.engines.node, /^>=\d+/);
     assert.equal(KIT_PKG.engines.bun, undefined);
-    assert.equal(KIT_PKG.dependencies, undefined, "no runtime dependencies");
+  });
+
+  it("depends only on the tools it orchestrates, pinned exactly", () => {
+    assert.deepEqual(Object.keys(KIT_PKG.dependencies).sort(), [
+      "@commitlint/cli",
+      "@commitlint/config-conventional",
+      "commitizen",
+      "cz-conventional-changelog",
+      "lint-staged",
+    ]);
+    for (const [name, range] of Object.entries(KIT_PKG.dependencies)) {
+      assert.match(range, /^\d+\.\d+\.\d+$/, `${name} is pinned`);
+    }
   });
 
   it("no source file uses a Bun API or module", () => {
@@ -93,31 +102,36 @@ describe("runs on Node.js without Bun", () => {
     assert.equal(existsSync(join(dir, "biome.json")), true);
   });
 
-  it("check, check-commit and commit --dry-run run", {
+  it("check, check-commit and commit run", {
     skip: nobun ? false : "Bun is on the system PATH",
   }, () => {
     const dir = project({
       files: {
         "biome.json": '{ "formatter": { "indentStyle": "space", "indentWidth": 2 } }\n',
         "a.js": "export const a = 1;\n",
+        "commitlint.config.mjs": 'export { default } from "lintlane/commitlint";\n',
       },
     });
+    gitOut(dir, "config", "commit.gpgsign", "false");
     const check = runCli(["check"], { cwd: dir, env: nobun.env });
     assert.equal(check.status, 0, check.stderr + check.stdout);
 
-    const ok = runCli(["check-commit", "--message", "feat: add thing"], { env: nobun.env });
-    assert.equal(ok.status, 0, ok.stderr);
-    const bad = runCli(["check-commit", "--message", "test"], { env: nobun.env });
-    assert.equal(bad.status, 1);
-
-    gitOut(dir, "add", "-A");
-    const dry = runCli(["commit", "--dry-run"], {
+    mkdirp(join(dir, "node_modules"));
+    symlinkSync(KIT_DIR, join(dir, "node_modules", "lintlane"), "dir");
+    const ok = runCli(["check-commit", "--message", "feat: add thing"], {
       cwd: dir,
       env: nobun.env,
-      input: "2\n\nfix a thing\n\nn\n\ny\n",
     });
-    assert.equal(dry.status, 0, dry.stderr);
-    assert.equal(dry.stdout, "fix: fix a thing\n");
+    assert.equal(ok.status, 0, ok.stderr + ok.stdout);
+    const bad = runCli(["check-commit", "--message", "test"], { cwd: dir, env: nobun.env });
+    assert.equal(bad.status, 1);
+
+    const help = runCli(["commit", "--help"], { cwd: dir, env: nobun.env });
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /Commitizen/);
+    const unconfigured = runCli(["commit", "--dry-run"], { cwd: dir, env: nobun.env });
+    assert.equal(unconfigured.status, 1);
+    assert.match(unconfigured.stderr, /no adapter configured/);
   });
 });
 
@@ -325,14 +339,23 @@ describe("init in a new project (no install)", () => {
     }
     const workflow = read(dir, ".github/workflows/biome.yml");
     assert.match(workflow, /run: npm ci/);
-    assert.match(workflow, /check-commit\.mjs/);
+    assert.match(workflow, /cli\.mjs check-commit/);
+
+    assert.deepEqual(pkg["lint-staged"], {
+      "*": "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
+    });
+    assert.equal(pkg.config.commitizen.path, "lintlane/presets/commitizen.cjs");
+    assert.equal(
+      read(dir, "commitlint.config.mjs"),
+      'export { default } from "lintlane/commitlint";\n',
+    );
   });
 
   it("the generated pre-commit hook is the safe one", () => {
     const dir = project();
     runCli(["init", "--skip-install"], { cwd: dir });
     const hook = read(dir, ".husky/pre-commit");
-    assert.match(hook, /node_modules\/lintlane\/bin\/pre-commit\.mjs/);
+    assert.match(hook, /cli\.mjs hook pre-commit/);
     assert.doesNotMatch(hook, /update-index/);
     assert.doesNotMatch(hook, /--staged/);
   });
@@ -472,7 +495,7 @@ describe("init in an existing project preserves what's there", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(read(dir, ".husky/pre-commit"), template("pre-commit"));
     assert.equal(isExecutable(dir, ".husky/pre-commit"), true);
-    assert.match(result.stdout, /Replaced \.husky\/pre-commit/);
+    assert.match(result.stdout, /Upgrade \.husky\/pre-commit/);
   });
 
   it("warns about, but does not rewrite, a customized hook that still re-stages unsafely", () => {
@@ -494,6 +517,9 @@ describe("generated hooks work end to end", () => {
     // Stand in for `npm install`: lintlane resolvable from node_modules; hooks live in .husky.
     mkdirp(join(dir, "node_modules"));
     symlinkSync(KIT_DIR, join(dir, "node_modules", "lintlane"), "dir");
+    // ...and Biome, which lint-staged finds in node_modules/.bin.
+    mkdirp(join(dir, "node_modules", ".bin"));
+    symlinkSync(KIT_BIOME, join(dir, "node_modules", ".bin", "biome"));
     gitOut(dir, "config", "core.hooksPath", ".husky");
     gitOut(dir, "config", "commit.gpgsign", "false");
 
@@ -502,7 +528,7 @@ describe("generated hooks work end to end", () => {
 
     const rejected = commit(dir, "test");
     assert.notEqual(rejected.status, 0);
-    assert.match(rejected.stderr, /Commit message rejected/);
+    assert.match(rejected.stderr, /(subject|type) may not be empty/);
 
     const accepted = commit(dir, "feat: add a");
     assert.equal(accepted.status, 0, accepted.stderr);

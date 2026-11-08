@@ -2,6 +2,7 @@
 // process on Node.js and the dashboard is driven over HTTP.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { request } from "node:http";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { CLI, cleanEnv, gitOut, read, startAndWait, tempDir, write } from "./helpers.mjs";
@@ -128,6 +129,50 @@ describe("lintlane ui (Node.js)", () => {
     });
     assert.equal(wrong.status, 401);
     assert.equal((await fetch(`${ui.base}/nothing-here`)).status, 404);
+  });
+
+  it("sends a CSP with a per-page nonce on every script, plus hardening headers", async () => {
+    const page = await fetch(`${ui.base}/?t=${ui.token}`);
+    const csp = page.headers.get("content-security-policy");
+    const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
+    assert.ok(nonce, csp);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.match(csp, /default-src 'none'/);
+    assert.equal(page.headers.get("x-content-type-options"), "nosniff");
+    const html = await page.text();
+    const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+    assert.ok(scripts.length > 0);
+    for (const tag of scripts) assert.ok(tag.includes(`nonce="${nonce}"`), tag);
+    const again = await fetch(`${ui.base}/?t=${ui.token}`);
+    assert.notEqual(
+      /script-src 'nonce-([^']+)'/.exec(again.headers.get("content-security-policy"))[1],
+      nonce,
+    );
+  });
+
+  it("refuses requests whose Host header isn't loopback (DNS rebinding)", async () => {
+    const { port } = new URL(ui.base);
+    const status = await new Promise((resolve, reject) => {
+      const req = request(
+        { host: "127.0.0.1", port, path: `/?t=${ui.token}`, headers: { host: "evil.example.com" } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(status, 403);
+  });
+
+  it("reports the setup through /api/doctor, using the same checks as the CLI", async () => {
+    const res = await ui.api("/api/doctor");
+    assert.equal(res.status, 200);
+    const report = await res.json();
+    assert.equal(typeof report.ok, "boolean");
+    assert.ok(report.findings.some((f) => f.id === "biome"));
+    assert.match(report.text, /lintlane doctor/);
   });
 
   it("rejects malformed JSON", async () => {

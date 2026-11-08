@@ -126,8 +126,21 @@ export function detectPreset(pkg) {
   return { preset: "base", label: null };
 }
 
-/** The GitHub Actions workflow `init` writes. */
-export function renderWorkflow({ pmName, kitName, withCommitCheck }) {
+const RUN_SCRIPT_PREFIX = { npm: "npm run", pnpm: "pnpm run", yarn: "yarn run", bun: "bun run" };
+
+/** The `run:` command a check has in the generated workflow, or null if it has none. */
+export function ciCommand(pmName, step) {
+  if (step.id === "biome") return PACKAGE_MANAGERS[pmName].runCheckCi;
+  if (step.ci && step.script) return `${RUN_SCRIPT_PREFIX[pmName]} ${step.script}`;
+  return null;
+}
+
+/**
+ * The GitHub Actions workflow `init` writes. `checks` is the resolved list from
+ * checks.mjs, so the workflow runs exactly what the CLI and dashboard run.
+ * Without it, only Biome.
+ */
+export function renderWorkflow({ pmName, kitName, withCommitCheck, checks }) {
   const pm = PACKAGE_MANAGERS[pmName];
   // Catches commits that skipped the local hooks (--no-verify, GUI clients, fresh clones).
   const checkout = withCommitCheck ? "\n        with:\n          fetch-depth: 0" : "";
@@ -136,9 +149,13 @@ export function renderWorkflow({ pmName, kitName, withCommitCheck }) {
         "",
         "      - name: Check commit messages",
         "        if: github.event_name == 'pull_request'",
-        `        run: node node_modules/${kitName}/bin/check-commit.mjs --rev-range origin/\${{ github.base_ref }}..HEAD`,
+        `        run: node node_modules/${kitName}/bin/cli.mjs check-commit --rev-range origin/\${{ github.base_ref }}..HEAD`,
       ].join("\n")
     : "";
+  const commands = (checks ?? [{ id: "biome", ci: true }])
+    .map((step) => ciCommand(pmName, step))
+    .filter(Boolean);
+  const runSteps = commands.map((command) => `      - run: ${command}`).join("\n");
   return `name: Biome
 
 on:
@@ -153,7 +170,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4${checkout}
 ${pm.setupSteps.join("\n")}${commitStep}
-      - run: ${pm.runCheckCi}
+${runSteps}
 `;
 }
 
@@ -178,3 +195,82 @@ export function isLegacyPreCommit(content) {
 export function hasUnsafeRestaging(content) {
   return /git\s+update-index\s+--again/.test(content);
 }
+
+// Hooks written by earlier versions of lintlane that did their own work in
+// bin/*.mjs files which no longer exist. An untouched copy is safe to replace.
+const LEGACY_HOOKS = {
+  "pre-commit": [
+    'if [ -f node_modules/lintlane/bin/pre-commit.mjs ]; then\n  node node_modules/lintlane/bin/pre-commit.mjs\nelse\n  echo "lintlane: node_modules/lintlane not found; skipping staged-file checks. Run your package manager\'s install." >&2\nfi',
+  ],
+  "commit-msg": [
+    '[ -f node_modules/lintlane/bin/commit-msg.mjs ] || exit 0\nnode node_modules/lintlane/bin/commit-msg.mjs "$1"',
+  ],
+  "prepare-commit-msg": [
+    '[ -f node_modules/lintlane/bin/prepare-commit-msg.mjs ] || exit 0\nnode node_modules/lintlane/bin/prepare-commit-msg.mjs "$1" "$2"',
+  ],
+  "pre-push": [
+    '[ -f node_modules/lintlane/bin/pre-push-check.mjs ] || exit 0\nnode node_modules/lintlane/bin/pre-push-check.mjs "$1" "$2"',
+  ],
+};
+
+const REMOVED_ENTRYPOINTS =
+  /bin\/(pre-commit|commit-msg|prepare-commit-msg|pre-push-check|staged|commit-lint)\.mjs/;
+
+/**
+ * What a hook file is, relative to this version of lintlane:
+ *   "current"  the shipped template
+ *   "legacy"   an untouched hook from an older lintlane (safe to replace)
+ *   "stale"    edited, but still calls files lintlane no longer ships (needs a human)
+ *   "unsafe"   edited, and re-stages with `git update-index --again`
+ *   "custom"   the project's own hook
+ */
+export function classifyHook(name, content, template) {
+  const normalized = content.trim();
+  if (normalized === template.trim()) return "current";
+  if (name === "pre-commit" && isLegacyPreCommit(content)) return "legacy";
+  if ((LEGACY_HOOKS[name] ?? []).some((legacy) => legacy === normalized)) return "legacy";
+  if (REMOVED_ENTRYPOINTS.test(content)) return "stale";
+  if (name === "pre-commit" && hasUnsafeRestaging(content)) return "unsafe";
+  return "custom";
+}
+
+/** Does the project already configure lint-staged? (package.json key or a config file) */
+export function hasLintStagedConfig(cwd, pkg) {
+  if (pkg?.["lint-staged"]) return true;
+  return [
+    ".lintstagedrc",
+    ".lintstagedrc.json",
+    ".lintstagedrc.yaml",
+    ".lintstagedrc.yml",
+    ".lintstagedrc.js",
+    ".lintstagedrc.cjs",
+    ".lintstagedrc.mjs",
+    "lint-staged.config.js",
+    "lint-staged.config.cjs",
+    "lint-staged.config.mjs",
+  ].some((file) => existsSync(join(cwd, file)));
+}
+
+/** Does the project already configure commitlint? */
+export function hasCommitlintConfig(cwd, pkg) {
+  if (pkg?.commitlint) return true;
+  return [
+    ".commitlintrc",
+    ".commitlintrc.json",
+    ".commitlintrc.yaml",
+    ".commitlintrc.yml",
+    ".commitlintrc.js",
+    ".commitlintrc.cjs",
+    ".commitlintrc.mjs",
+    ".commitlintrc.ts",
+    "commitlint.config.js",
+    "commitlint.config.cjs",
+    "commitlint.config.mjs",
+    "commitlint.config.ts",
+  ].some((file) => existsSync(join(cwd, file)));
+}
+
+export const LINT_STAGED_CONFIG = {
+  "*": "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
+};
+export const COMMITIZEN_PATH = "lintlane/presets/commitizen.cjs";

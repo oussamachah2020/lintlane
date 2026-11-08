@@ -178,7 +178,7 @@ describe("renderWorkflow", () => {
       assert.match(yaml, /fetch-depth: 0/);
       assert.match(
         yaml,
-        /node node_modules\/lintlane\/bin\/check-commit\.mjs --rev-range origin\/\$\{\{ github\.base_ref \}\}\.\.HEAD/,
+        /node node_modules\/lintlane\/bin\/cli\.mjs check-commit --rev-range origin\/\$\{\{ github\.base_ref \}\}\.\.HEAD/,
       );
     });
   }

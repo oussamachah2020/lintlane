@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { detectCiSteps, runCiSteps } from "./ci.mjs";
+import { resolveChecks, runCiSteps } from "./checks.mjs";
+import { formatReport, runDoctor } from "./doctor.mjs";
 import { runProcess, spawnPrepared } from "./proc.mjs";
 
 const MAX_FILES = 200;
@@ -20,6 +21,21 @@ function safePath(cwd, file) {
   return isInside(cwd, abs) && abs !== cwd ? abs : null;
 }
 
+function tokenMatches(given, expected) {
+  if (typeof given !== "string") return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// Only answer requests addressed to the loopback name we listen on. A hostile web
+// page can point its own domain at 127.0.0.1 (DNS rebinding); its Host header then
+// names that domain, not us.
+function hostAllowed(hostHeader, port) {
+  if (typeof hostHeader !== "string") return false;
+  return [`127.0.0.1:${port}`, `localhost:${port}`].includes(hostHeader.toLowerCase());
+}
+
 const runBiome = (biome, args, options) =>
   runProcess(biome[0], [...biome.slice(1), ...args], options);
 
@@ -33,9 +49,20 @@ async function runCheck(cwd, biome) {
   );
   const start = out.indexOf("{");
   if (start === -1) {
-    throw new Error(result.stderr.toString().trim() || "Biome produced no JSON output");
+    const detail = result.error
+      ? `Couldn't start Biome: ${result.error.message}`
+      : result.stderr.toString().trim() ||
+        `Biome exited with code ${result.code} and no JSON output`;
+    throw new Error(detail);
   }
-  const report = JSON.parse(out.slice(start));
+  let report;
+  try {
+    report = JSON.parse(out.slice(start));
+  } catch {
+    throw new Error(
+      `Biome's output wasn't valid JSON (exit code ${result.code}). Run \`biome check .\` in a terminal to see the problem.`,
+    );
+  }
 
   const byFile = new Map();
   for (const d of report.diagnostics ?? []) {
@@ -62,6 +89,8 @@ async function runCheck(cwd, biome) {
     files,
     totalFiles: byFile.size,
     truncated: byFile.size > MAX_FILES,
+    exitCode: result.code,
+    ms: Math.round(performance.now() - t0),
   };
 }
 
@@ -140,33 +169,64 @@ function openBrowser(address) {
 
 export async function startUi({ cwd, biome, kitDir, port, open, pmName, pkg }) {
   let ciBusy = false;
+  let checkBusy = false;
   const token = randomUUID();
+  const checksFor = () => resolveChecks({ cwd, biome, pmName, pkg });
   const html = await readFile(join(kitDir, "ui", "index.html"), "utf8");
 
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
 
+    if (!hostAllowed(req.headers.host, server.address().port)) {
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Forbidden: unexpected Host header.");
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/") {
-      if (url.searchParams.get("t") !== token) {
+      if (!tokenMatches(url.searchParams.get("t"), token)) {
         res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
         res.end("Forbidden: open the URL printed by `lintlane ui`.");
         return;
       }
+      const nonce = randomBytes(16).toString("base64");
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "cross-origin-resource-policy": "same-origin",
+        "content-security-policy": [
+          "default-src 'none'",
+          `script-src 'nonce-${nonce}'`,
+          "style-src 'unsafe-inline'",
+          "connect-src 'self'",
+          "img-src 'self' data:",
+          "base-uri 'none'",
+          "form-action 'none'",
+          "frame-ancestors 'none'",
+        ].join("; "),
       });
-      res.end(html.replace("__TOKEN__", token));
+      res.end(html.replace("__TOKEN__", token).replaceAll("<script", `<script nonce="${nonce}"`));
       return;
     }
 
     if (url.pathname.startsWith("/api/")) {
-      if (req.headers["x-lintlane-token"] !== token) {
+      if (!tokenMatches(req.headers["x-lintlane-token"], token)) {
         sendJson(res, 401, { error: "Unauthorized" });
         return;
       }
       if (req.method === "POST" && url.pathname === "/api/check") {
-        sendJson(res, 200, await runCheck(cwd, biome));
+        if (checkBusy) {
+          sendJson(res, 409, { error: "A check is already running" });
+          return;
+        }
+        checkBusy = true;
+        try {
+          sendJson(res, 200, await runCheck(cwd, biome));
+        } finally {
+          checkBusy = false;
+        }
         return;
       }
       if (req.method === "POST" && url.pathname === "/api/fix") {
@@ -180,9 +240,11 @@ export async function startUi({ cwd, biome, kitDir, port, open, pmName, pkg }) {
         return;
       }
       if (req.method === "POST" && url.pathname === "/api/ci/steps") {
-        const steps = detectCiSteps({ cwd, biome, pmName, pkg });
+        const { steps, problems } = checksFor();
         sendJson(res, 200, {
           pmName,
+          problems,
+          busy: ciBusy,
           steps: steps.map(({ id, label, display, defaultOn, note }) => ({
             id,
             label,
@@ -199,7 +261,7 @@ export async function startUi({ cwd, biome, kitDir, port, open, pmName, pkg }) {
           return;
         }
         const { steps: ids, stopOnFail } = await readJson(req);
-        const known = detectCiSteps({ cwd, biome, pmName, pkg });
+        const known = checksFor().steps;
         const steps = Array.isArray(ids) ? known.filter((step) => ids.includes(step.id)) : [];
         if (steps.length === 0) {
           sendJson(res, 400, { error: "No steps selected" });
@@ -226,6 +288,11 @@ export async function startUi({ cwd, biome, kitDir, port, open, pmName, pkg }) {
           ciBusy = false;
           if (!res.destroyed) res.end();
         }
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/api/doctor") {
+        const report = await runDoctor({ cwd, kitDir });
+        sendJson(res, 200, { ...report, text: formatReport(report) });
         return;
       }
       if (req.method === "POST" && url.pathname === "/api/diff") {

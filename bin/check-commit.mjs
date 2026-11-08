@@ -1,89 +1,37 @@
-// `lintlane check-commit` — validate commit messages (Commitizen's `cz check`).
-// Plain Node on purpose: it also runs in CI and in the pre-push hook.
+// `lintlane check-commit` — validate commit messages with commitlint.
 //
 //   --message "<msg>"            check a string (or pipe it in on stdin)
-//   --commit-msg-file <path>     check a message file (what the commit-msg hook does)
-//   --rev-range <range>          check every commit in a git range, e.g. main..HEAD
+//   --commit-msg-file <path>     check a message file
+//   --rev-range <a..b>           check every commit in a git range
 //   -d, --use-default-range      same as --rev-range <default branch>..HEAD
-//   --allow-abort                accept an empty message (git aborts those itself)
-//   --allowed-prefixes <p>       extra message prefixes to skip (repeatable)
-//   -l, --message-length-limit N max header length (0 = no limit)
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { loadCommitConfig } from "./commit-config.mjs";
-import { cleanMessage, explainFailure, validateMessage } from "./commit-lint.mjs";
+import { resolveTool, runInherit, runProcess } from "./proc.mjs";
 
 const HELP = `Usage: lintlane check-commit [options]
 
-Checks that commit messages follow Conventional Commits. Give exactly one of:
+Checks that commit messages follow Conventional Commits (commitlint). Give one of:
   --message <msg>            a message (or pipe one in: echo "feat: x" | lintlane check-commit)
   --commit-msg-file <path>   a file containing the message
-  --rev-range <range>        every commit in a range, e.g. origin/main..HEAD
+  --rev-range <a..b>         every commit in a range, e.g. origin/main..HEAD
   -d, --use-default-range    shorthand for <default branch>..HEAD
 
-Options:
-  --allow-abort                  Accept an empty message
-  --allowed-prefixes <prefix>    Skip messages starting with this (repeatable)
-  -l, --message-length-limit <n> Maximum header length (0 = no limit)
+Rules come from commitlint.config.mjs (see \`lintlane init\`) and the optional
+"lintlane.commit" block in package.json.
 `;
 
-const git = (args, cwd) =>
-  execFileSync("git", args, {
+const err = (text) => process.stderr.write(`${text}\n`);
+
+async function defaultBranch(cwd) {
+  const head = await runProcess("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
     cwd,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
   });
-
-/** Commits reachable by the given `git log` arguments, oldest last. */
-export function listCommits(logArgs, cwd = process.cwd()) {
-  const out = git(["log", "--format=%H%x1f%B%x1e", ...logArgs], cwd);
-  return out
-    .split("\x1e")
-    .map((entry) => entry.replace(/^\n/, ""))
-    .filter((entry) => entry.trim() !== "")
-    .map((entry) => {
-      const [hash, ...message] = entry.split("\x1f");
-      return { hash: hash.trim(), message: message.join("\x1f") };
-    });
-}
-
-/** Validate commits; returns only the failing ones, with their errors. */
-export function findInvalidCommits(commits, options) {
-  const invalid = [];
-  for (const commit of commits) {
-    const result = validateMessage(commit.message, options);
-    if (!result.valid) invalid.push({ ...commit, errors: result.errors });
+  if (head.code === 0) return head.stdout.toString().trim();
+  for (const name of ["origin/main", "origin/master", "main", "master"]) {
+    const probe = await runProcess("git", ["rev-parse", "--verify", "-q", name], { cwd });
+    if (probe.code === 0) return name;
   }
-  return invalid;
-}
-
-export function describeInvalid(invalid) {
-  return invalid
-    .map((c) => {
-      const subject = cleanMessage(c.message).split("\n")[0] || "(empty message)";
-      return `  ${c.hash.slice(0, 8)}  ${subject}\n${c.errors.map((e) => `            • ${e}`).join("\n")}`;
-    })
-    .join("\n");
-}
-
-function defaultBranchRange(cwd) {
-  const candidates = [];
-  try {
-    candidates.push(git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd).trim());
-  } catch {}
-  candidates.push("origin/main", "origin/master", "main", "master");
-  for (const ref of candidates) {
-    try {
-      git(["rev-parse", "--verify", "--quiet", ref], cwd);
-      return `${ref}..HEAD`;
-    } catch {}
-  }
-  throw new Error(
-    "Couldn't find a default branch (tried origin/HEAD, main, master). Use --rev-range.",
-  );
+  return null;
 }
 
 export async function main(argv, cwd = process.cwd()) {
@@ -96,14 +44,11 @@ export async function main(argv, cwd = process.cwd()) {
         "commit-msg-file": { type: "string" },
         "rev-range": { type: "string" },
         "use-default-range": { type: "boolean", short: "d" },
-        "allow-abort": { type: "boolean" },
-        "allowed-prefixes": { type: "string", multiple: true },
-        "message-length-limit": { type: "string", short: "l" },
         help: { type: "boolean", short: "h" },
       },
     }));
   } catch (error) {
-    process.stderr.write(`✘ ${error.message}\n\n${HELP}`);
+    err(`✘ ${error.message}\n\n${HELP}`);
     return 2;
   }
   if (values.help) {
@@ -111,73 +56,45 @@ export async function main(argv, cwd = process.cwd()) {
     return 0;
   }
 
-  const config = loadCommitConfig(cwd);
-  const options = {
-    ...config,
-    allowAbort: values["allow-abort"] ?? config.allowAbort,
-    allowedPrefixes: [...(config.allowedPrefixes ?? []), ...(values["allowed-prefixes"] ?? [])],
-    messageLengthLimit: values["message-length-limit"] ?? config.messageLengthLimit,
-  };
-
-  const modes = [
-    values.message,
-    values["commit-msg-file"],
-    values["rev-range"],
-    values["use-default-range"],
-  ].filter((v) => v !== undefined && v !== false).length;
-  if (modes > 1) {
-    process.stderr.write(
-      `✘ Choose only one of --message, --commit-msg-file, --rev-range, --use-default-range.\n`,
-    );
-    return 2;
-  }
-
-  try {
-    let invalid;
-    let checked;
-    if (values["rev-range"] || values["use-default-range"]) {
-      const range = values["rev-range"] ?? defaultBranchRange(cwd);
-      const commits = listCommits([range], cwd);
-      checked = commits.length;
-      invalid = findInvalidCommits(commits, options);
-    } else {
-      let raw;
-      if (values.message !== undefined) raw = values.message;
-      else if (values["commit-msg-file"]) raw = readFileSync(values["commit-msg-file"], "utf8");
-      else if (!process.stdin.isTTY) raw = readFileSync(0, "utf8");
-      else {
-        process.stderr.write(`✘ Nothing to check.\n\n${HELP}`);
-        return 2;
-      }
-      checked = 1;
-      const result = validateMessage(raw, options);
-      invalid = result.valid ? [] : [{ hash: "", message: raw, errors: result.errors }];
-    }
-
-    if (invalid.length === 0) {
-      process.stdout.write(`✔ Commit validation successful (${checked} checked).\n`);
-      return 0;
-    }
-    if (
-      values.message !== undefined ||
-      values["commit-msg-file"] ||
-      (!values["rev-range"] && !values["use-default-range"])
-    ) {
-      process.stderr.write(`${explainFailure(invalid[0].errors, options)}\n`);
-    } else {
-      process.stderr.write(
-        `\n✘ ${invalid.length} of ${checked} commit message(s) don't follow Conventional Commits:\n\n${describeInvalid(invalid)}\n\n` +
-          "  Fix them with `git rebase -i` (reword) or `git commit --amend` for the latest one.\n\n",
-      );
-    }
+  const commitlint = resolveTool("@commitlint/cli", "commitlint");
+  if (!commitlint) {
+    err("✘ commitlint isn't installed. Reinstall lintlane with your package manager.");
     return 1;
-  } catch (error) {
-    const detail = error.stderr?.toString().trim().split("\n")[0] || error.message;
-    process.stderr.write(`✘ ${detail}\n`);
-    return 2;
   }
-}
+  const base = [...commitlint.slice(1), "--cwd", cwd];
+  const run = (args, input) =>
+    input === undefined
+      ? runInherit(commitlint[0], [...base, ...args], { cwd })
+      : runProcess(commitlint[0], [...base, ...args], { cwd, input }).then((result) => {
+          process.stdout.write(result.stdout);
+          process.stderr.write(result.stderr);
+          return result.code;
+        });
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exit(await main(process.argv.slice(2)));
+  let range = values["rev-range"];
+  if (values["use-default-range"]) {
+    const branch = await defaultBranch(cwd);
+    if (!branch) {
+      err("✘ Couldn't find the default branch. Use --rev-range <a..b>.");
+      return 1;
+    }
+    range = `${branch}..HEAD`;
+  }
+  if (range) {
+    const [from, to = "HEAD"] = range.split("..");
+    if (!from) {
+      err('✘ --rev-range must look like "origin/main..HEAD".');
+      return 2;
+    }
+    return run(["--from", from, "--to", to]);
+  }
+  if (values["commit-msg-file"]) return run(["--edit", values["commit-msg-file"]]);
+  if (values.message !== undefined) return run([], values.message);
+  if (!process.stdin.isTTY) {
+    try {
+      return run([], readFileSync(0, "utf8"));
+    } catch {}
+  }
+  err(`✘ Nothing to check.\n\n${HELP}`);
+  return 2;
 }

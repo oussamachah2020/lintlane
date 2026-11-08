@@ -1,7 +1,7 @@
 {
   "name": "lintlane",
-  "version": "3.0.0",
-  "description": "Pre-push checks for React apps: shared Biome preset, local lint and CI dashboard",
+  "version": "4.0.0",
+  "description": "Code-quality workflow for JavaScript, React and Next.js: orchestrates Biome, lint-staged, Husky, Commitizen and commitlint, with a local dashboard and CI",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -11,7 +11,9 @@
     "./biome": "./presets/base.json",
     "./biome/strict": "./presets/strict.json",
     "./biome/next": "./presets/next.json",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./commitlint": "./presets/commitlint.mjs",
+    "./commitizen": "./presets/commitizen.cjs"
   },
   "files": [
     "bin",
@@ -43,7 +45,18 @@
     "biome",
     "react",
     "lint",
-    "format"
+    "format",
+    "lint-staged",
+    "husky",
+    "commitlint",
+    "commitizen"
   ],
-  "author": "Expo2Dev"
+  "author": "Expo2Dev",
+  "dependencies": {
+    "@commitlint/cli": "19.8.1",
+    "@commitlint/config-conventional": "19.8.1",
+    "commitizen": "4.3.2",
+    "cz-conventional-changelog": "3.3.0",
+    "lint-staged": "16.4.0"
+  }
 }

@@ -89,6 +89,22 @@ function assertProjectWorks(dir) {
     assert.ok(existsSync(join(dir, ".husky", hook)), hook);
   }
 
+  const doctor = spawnSync(
+    "node",
+    [join(dir, "node_modules", "lintlane", "bin", "cli.mjs"), "doctor", "--json"],
+    {
+      cwd: dir,
+      encoding: "utf8",
+      env: cleanEnv(),
+    },
+  );
+  const report = JSON.parse(doctor.stdout);
+  assert.deepEqual(
+    report.findings.filter((f) => f.status === "fail"),
+    [],
+    "doctor finds nothing broken after init",
+  );
+
   // Seed a formatted file, then stage part of an edit and keep editing.
   write(dir, "a.js", FORMATTED);
   gitOut(dir, "add", "-A");
@@ -102,7 +118,7 @@ function assertProjectWorks(dir) {
   const headBefore = gitOut(dir, "rev-parse", "HEAD");
   const bad = commit(dir, "test");
   assert.notEqual(bad.status, 0, "a non-conventional message is rejected");
-  assert.match(bad.stderr, /Commit message rejected/);
+  assert.match(bad.stdout + bad.stderr, /(subject|type) may not be empty/);
   assert.equal(gitOut(dir, "rev-parse", "HEAD"), headBefore, "no commit was made");
   // The pre-commit hook ran first: it formatted the staged content and merged that into the
   // working file, but the developer's unstaged edit is still there, byte for byte.
@@ -165,7 +181,11 @@ describe("real end-to-end", { skip: SKIP_ALL }, () => {
 
     it("`yarn dlx lintlane init` (real yarn)", {
       timeout: TIMEOUT,
-      skip: which("yarn") ? false : "yarn is not installed on this machine (mocked tests only)",
+      skip: !which("yarn")
+        ? "yarn is not installed on this machine (mocked tests only)"
+        : run("yarn", ["--version"]).stdout.startsWith("1.")
+          ? "yarn dlx needs Yarn 2+ (this is Yarn 1)"
+          : false,
     }, () => {
       const dir = newProject();
       const env = toolEnv(["yarn"], { LINTLANE_INSTALL_SPEC: tarball });

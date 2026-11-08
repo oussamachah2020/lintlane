@@ -1,2 +1,2 @@
-[ -f node_modules/lintlane/bin/pre-push-check.mjs ] || exit 0
-node node_modules/lintlane/bin/pre-push-check.mjs "$1" "$2"
+[ -f node_modules/lintlane/bin/cli.mjs ] || { echo "lintlane: node_modules/lintlane not found; skipping pre-push. Run your package manager's install." >&2; exit 0; }
+node node_modules/lintlane/bin/cli.mjs hook pre-push "$@"

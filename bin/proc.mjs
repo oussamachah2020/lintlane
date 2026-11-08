@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const isWindows = process.platform === "win32";
 
@@ -24,6 +24,25 @@ export function resolveBiome(cwd) {
   try {
     const script = createRequire(import.meta.url).resolve("@biomejs/biome/bin/biome");
     return [process.execPath, script];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The argv that runs a binary shipped by one of lintlane's own dependencies
+ * (lint-staged, commitlint, commitizen). Resolved from lintlane's location, so it
+ * works with every package manager, including pnpm's strict node_modules layout.
+ * Returns null if the package isn't installed.
+ */
+export function resolveTool(pkgName, binName = pkgName) {
+  try {
+    const require = createRequire(import.meta.url);
+    const manifestPath = require.resolve(`${pkgName}/package.json`);
+    const manifest = require(manifestPath);
+    const rel = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[binName];
+    if (!rel) return null;
+    return [process.execPath, join(dirname(manifestPath), rel)];
   } catch {
     return null;
   }

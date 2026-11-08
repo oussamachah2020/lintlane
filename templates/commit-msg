@@ -1,2 +1,2 @@
-[ -f node_modules/lintlane/bin/commit-msg.mjs ] || exit 0
-node node_modules/lintlane/bin/commit-msg.mjs "$1"
+[ -f node_modules/lintlane/bin/cli.mjs ] || { echo "lintlane: node_modules/lintlane not found; skipping commit-msg. Run your package manager's install." >&2; exit 0; }
+node node_modules/lintlane/bin/cli.mjs hook commit-msg "$@"

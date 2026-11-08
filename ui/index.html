@@ -12,27 +12,30 @@
 </script>
 <style>
   :root {
-    --bg: #fafaf9; --panel: #ffffff; --row-hover: #f5f5f4; --row-sel: #efeeed; --text: #1c1917; --muted: #78716c; --border: #e7e5e4;
+    --bg: #fafafa; --panel: #ffffff; --row-hover: #f4f4f5; --row-sel: #e4e4e7; --text: #18181b; --muted: #71717a; --border: #d4d4d8;
     --err: #b91c1c; --warn: #b45309; --info: #1d4ed8; --ok: #15803d; --err-row: #fdf2f2;
     --add-bg: #e6ffec; --add-fg: #116329; --del-bg: #ffebe9; --del-fg: #82071e;
-    --accent: #1c1917; --accent-fg: #fafaf9;
+    --accent: #18181b; --accent-fg: #fafafa;
+    --surface: #f4f4f5; --silver: #c4c4cc; --log-bg: #fafafa; --log-head: #f4f4f5; --log-fg: #27272a; --log-muted: #71717a;
   }
   :root { color-scheme: light; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
-      --bg: #0c0a09; --panel: #1c1917; --row-hover: #24201e; --row-sel: #2b2724; --text: #f5f5f4; --muted: #a8a29e; --border: #292524;
+      --bg: #09090b; --panel: #18181b; --row-hover: #202023; --row-sel: #27272a; --text: #f4f4f5; --muted: #a1a1aa; --border: #3f3f46;
       --err: #f87171; --warn: #fbbf24; --info: #60a5fa; --ok: #4ade80; --err-row: #231414;
       --add-bg: #0f2d1a; --add-fg: #7ee787; --del-bg: #3a1618; --del-fg: #ffa198;
-      --accent: #f5f5f4; --accent-fg: #0c0a09;
+      --accent: #f4f4f5; --accent-fg: #09090b;
+      --surface: #18181b; --silver: #52525b; --log-bg: #101012; --log-head: #18181b; --log-fg: #e4e4e7; --log-muted: #a1a1aa;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #0c0a09; --panel: #1c1917; --row-hover: #24201e; --row-sel: #2b2724; --text: #f5f5f4; --muted: #a8a29e; --border: #292524;
+    --bg: #09090b; --panel: #18181b; --row-hover: #202023; --row-sel: #27272a; --text: #f4f4f5; --muted: #a1a1aa; --border: #3f3f46;
       --err: #f87171; --warn: #fbbf24; --info: #60a5fa; --ok: #4ade80; --err-row: #231414;
       --add-bg: #0f2d1a; --add-fg: #7ee787; --del-bg: #3a1618; --del-fg: #ffa198;
-      --accent: #f5f5f4; --accent-fg: #0c0a09;
+      --accent: #f4f4f5; --accent-fg: #09090b;
+      --surface: #18181b; --silver: #52525b; --log-bg: #101012; --log-head: #18181b; --log-fg: #e4e4e7; --log-muted: #a1a1aa;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -125,12 +128,121 @@
   @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
   .log { margin: 0; padding: 14px 18px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .error-box { background: var(--del-bg); color: var(--del-fg); padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; }
+  /* Actions-style workflow workspace */
+  #ciLayout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+  #ciSteps { background: transparent; border: 0; }
+  #ciPanel { background: var(--log-bg); color: var(--log-fg); border: 1px solid var(--silver); border-radius: 8px; overflow: hidden; }
+  #ciStats { display: flex; gap: 24px; padding: 12px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
+  #ciStats .stat { display: flex; align-items: baseline; gap: 7px; padding: 0; background: none; border: 0; }
+  #ciStats .stat b { font-size: 16px; }
+  #ciStats .stat span { font-size: 13px; margin: 0; }
+  .ci-tools { font-size: 13px; }
+  .ci-tools button { font-size: 12px; padding: 5px 10px; }
+  .ci-jobs-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 10px 12px; }
+  .ci-job { display: flex; align-items: center; gap: 8px; border-radius: 6px; margin: 3px 0; padding: 4px 8px; border: 1px solid var(--silver); }
+  .ci-job.sel { background: var(--row-sel); box-shadow: inset 3px 0 var(--info); }
+  .ci-job button { flex: 1; text-align: left; border: 0; padding: 8px 2px; background: transparent; min-width: 0; }
+  .ci-job b { display: block; font-size: 13px; font-weight: 600; }
+  .ci-job small { font-size: 11px; }
+  .ci-step { border-bottom: 1px solid var(--border); }
+  .ci-step:last-child { border-bottom: 0; }
+  .ci-step-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; width: 100%; border: 0; border-radius: 0; background: var(--log-head); color: var(--log-fg); text-align: left; }
+  .ci-step-head:hover:not(:disabled) { background: var(--row-hover); }
+  .ci-step-label { flex: 1; font-weight: 600; font-size: 13px; }
+  .ci-time { color: var(--log-muted); font: 12px ui-monospace, monospace; }
+  .ci-log-toolbar { display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .ci-log-toolbar .ci-time { margin-left: auto; color: var(--log-muted); }
+  .ci-command { padding: 14px 24px; color: var(--log-muted); font-size: 12px; border-bottom: 1px solid var(--row-hover); overflow-wrap: anywhere; }
+  .ci-log-body { max-height: 520px; overflow: auto; padding: 12px 0; scrollbar-color: var(--silver) var(--log-bg); }
+  .ci-log-line { display: flex; font: 12px/1.8 ui-monospace, "SF Mono", Menlo, monospace; min-height: 22px; }
+  .ci-line-number { flex: 0 0 52px; text-align: right; padding-right: 16px; color: var(--log-muted); user-select: none; }
+  .ci-line-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; padding-right: 24px; }
+  .ci-log-line:hover { background: var(--log-head); }
+  #ciPanel .st-pass { color: var(--ok); } #ciPanel .st-fail { color: var(--err); } #ciPanel .st-run { color: var(--info); }
+  button:focus-visible, input:focus-visible, .ci-log-body:focus-visible { outline: 2px solid var(--info); outline-offset: 3px; }
+  #ciFollow[aria-pressed="true"] { border-color: #58a6ff; color: #58a6ff; }
+  #ciRetry[hidden] { display: none; }
+  @media (max-width: 760px) { #ciStats { gap: 16px; } .ci-tools { gap: 8px; } main { padding: 20px 14px; } #ciLayout { grid-template-columns: minmax(0, 1fr); } .ci-step-head { flex-wrap: wrap; } }
+  /* Shared component polish: zinc surfaces, silver outlines, restrained density. */
+  body { font-size: 14px; -webkit-font-smoothing: antialiased; }
+  header { min-height: 72px; padding: 16px 32px; gap: 24px; }
+  .brand { display: flex; gap: 10px; align-items: center; }
+  .brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--silver); border-radius: 7px; background: var(--surface); }
+  .brand-mark svg { width: 20px; height: 20px; }
+  h1 { font-size: 15px; letter-spacing: -.04em; font-weight: 700; }
+  .brand-divider { margin: 0 4px; color: var(--silver); font-size: 21px; font-weight: 300; }
+  .workspace-label { font-size: 12px; color: var(--muted); }
+  main { max-width: 1440px; padding: 36px 32px 64px; }
+  .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 30px; }
+  .eyebrow { color: var(--muted); font-size: 11px; font-weight: 500; margin-bottom: 8px; }
+  h2 { font-size: 27px; font-weight: 650; letter-spacing: -.045em; line-height: 1.25; margin: 0; }
+  .page-heading p { font-size: 13px; color: var(--muted); margin: 9px 0 0; }
+  .environment { display: inline-flex; align-items: center; gap: 7px; font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; white-space: nowrap; }
+  .environment > span { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  button { font-size: 12px; font-weight: 500; border-radius: 6px; min-height: 32px; padding: 6px 12px; box-shadow: 0 1px 2px #00000006; transition: background-color .12s, border-color .12s; }
+  button:hover:not(:disabled) { background: var(--row-hover); border-color: var(--silver); }
+  button.primary:hover:not(:disabled) { background: var(--accent); opacity: .88; }
+  button.theme { width: 32px; height: 32px; font-size: 14px; padding: 0; }
+  .tabs { padding: 3px; border-radius: 7px; background: var(--surface); border: 1px solid var(--border); gap: 2px; margin: 0; }
+  .tab { padding: 4px 15px; min-height: 27px; border-radius: 4px; font-size: 12px; }
+  .tab[aria-current="page"] { background: var(--panel); box-shadow: 0 1px 3px #00000012; }
+  .badge { font-size: 10px; padding: 2px 7px; background: var(--surface); text-transform: capitalize; border-radius: 5px; }
+  .actions { gap: 8px; }
+  .check { font-size: 12px; gap: 5px; }
+  input[type="checkbox"] { accent-color: var(--text); width: 13px; height: 13px; cursor: pointer; }
+  .stats { gap: 12px; }
+  .stat { border-radius: 8px; padding: 20px; display: flex; flex-direction: column-reverse; gap: 12px; box-shadow: 0 1px 2px #00000004; }
+  .stat b { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; margin: 0; }
+  .card { border-radius: 8px; border-color: var(--silver); box-shadow: 0 1px 3px #00000004; }
+  .toolbar { margin-bottom: 16px; gap: 10px; }
+  .toolbar input { font-size: 12px; padding: 8px 12px; border-radius: 6px; min-width: 180px; }
+  .chips { gap: 3px; border: 1px solid var(--border); border-radius: 6px; padding: 3px; background: var(--surface); }
+  .chip { border: 0; border-radius: 4px; min-height: 26px; padding: 3px 12px; font-size: 11px; background: transparent; }
+  .chip[aria-pressed="true"] { background: var(--panel); box-shadow: 0 1px 3px #00000012; }
+  th { background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 500; padding: 11px 16px; }
+  td { padding: 13px 16px; font-size: 12px; }
+  .empty { padding: 64px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; }
+  .empty strong { color: var(--text); font-size: 14px; font-weight: 500; }
+  .empty-symbol { display: grid; place-items: center; width: 40px; height: 40px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; font: 22px ui-monospace, monospace; }
+  .panel-head { padding: 12px 16px; font-size: 12px; }
+  .diag { font-size: 12px; padding: 14px 16px; }
+  .diag .meta { font-size: 10px; margin-top: 5px; }
+  .verdict { border-radius: 8px; padding: 14px 18px; font-size: 13px; border: 1px solid var(--silver); background: var(--panel); }
+  .verdict.pass { background: var(--panel); border-color: var(--silver); color: var(--ok); box-shadow: inset 3px 0 var(--ok); }
+  .verdict.fail { background: var(--panel); border-color: var(--silver); color: var(--err); box-shadow: inset 3px 0 var(--err); }
+  .verdict small { color: var(--muted); opacity: 1; font-size: 12px; margin-top: 4px; }
+  #ciStats { gap: 28px; padding: 2px 0 18px; margin-bottom: 20px; }
+  #ciStats .stat { flex-direction: row; box-shadow: none; }
+  #ciStats .stat b { font-size: 14px; }
+  #ciStats .stat span { font-size: 11px; }
+  #ciLayout { grid-template-columns: 248px minmax(0, 1fr); gap: 20px; }
+  #ciSteps { padding: 8px; border: 1px solid var(--silver); border-radius: 8px; background: var(--panel); }
+  .ci-jobs-title { padding: 8px 8px 16px; font-size: 11px; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text); }
+  .ci-jobs-title > span { display: block; font-size: 10px; margin-top: 5px; font-weight: 400; }
+  .ci-job { border-color: transparent; margin: 2px 0; padding: 3px 8px; gap: 9px; }
+  .ci-job:hover { background: var(--row-hover); }
+  .ci-job.sel { border-color: var(--silver); background: var(--surface); box-shadow: none; }
+  .ci-job b { font-size: 12px; font-weight: 500; }
+  .ci-job small { display: block; font-size: 10px; margin-top: 5px; }
+  .ci-log-toolbar { padding: 16px 18px; font-size: 12px; background: var(--log-bg); }
+  .log-caption { display: block; font-size: 10px; color: var(--log-muted); margin-top: 4px; }
+  .ci-log-toolbar strong { font-weight: 500; }
+  .ci-step-head { padding: 15px 18px; font-size: 11px; }
+  .ci-step-label { font-size: 12px; font-weight: 500; }
+  .ci-step-head .ci-time { font-size: 10px; min-width: 45px; text-align: right; }
+  .ci-command { padding: 12px 18px; font-size: 11px; }
+  .ci-log-line { font-size: 11px; line-height: 1.9; }
+  #ciFollow[aria-pressed="true"] { border-color: var(--silver); color: var(--text); background: var(--surface); }
+  @media (max-width: 950px) { header { gap: 12px; padding: 12px 20px; } .workspace-label, .brand-divider { display: none; } .actions { flex-wrap: wrap; } }
+  @media (max-width: 760px) { main { padding: 24px 16px 48px; } #ciLayout { grid-template-columns: minmax(0, 1fr); } .page-heading { align-items: flex-start; } .environment { display: none; } .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } header { gap: 10px; } header .actions { width: 100%; order: 2; } .chips { margin-left: 0; } .ci-tools { gap: 8px; } }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Lintlane</h1>
-  <nav class="tabs">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 4 4-4 4M13 16h6M13 8h6"/></svg></span><h1>Lintlane</h1><span class="brand-divider">/</span><span class="workspace-label">Workspace</span></div>
+  <nav class="tabs" aria-label="Dashboard views">
     <button type="button" class="tab" data-view="lint" aria-current="page">Lint</button>
     <button type="button" class="tab" data-view="ci">CI</button>
   </nav>
@@ -148,6 +260,7 @@
   <button type="button" id="theme" class="theme" aria-label="Toggle light/dark mode"></button>
 </header>
 <main id="view-lint">
+  <div class="page-heading"><div><div class="eyebrow">Code quality</div><h2>Lint overview</h2><p>Review diagnostics and apply fixes before your next commit.</p></div><span class="environment"><span></span>Local workspace</span></div>
   <div id="notice"></div>
   <div class="stats" id="stats"></div>
   <div class="toolbar">
@@ -165,12 +278,21 @@
 </main>
 
 <main id="view-ci" hidden>
+  <div class="page-heading"><div><div class="eyebrow">Continuous integration</div><h2>Workflow runs</h2><p>Run your project checks and inspect the output, step by step.</p></div><span class="environment"><span></span>Local workspace</span></div>
   <div id="ciNotice"></div>
   <div id="ciVerdict"></div>
-  <div class="stats" id="ciStats"></div>
-  <div class="layout has-panel" id="ciLayout">
-    <div class="card" id="ciSteps"></div>
-    <div class="card panel" id="ciPanel"></div>
+  <div class="stats" id="ciStats" aria-live="polite"></div>
+  <div class="toolbar ci-tools">
+    <span class="muted">Local workflow / <strong>Quality checks</strong></span>
+    <div class="spacer"></div>
+    <button type="button" id="ciRetry" hidden>Re-run failed checks</button>
+    <button type="button" id="ciFollow" aria-pressed="true">Follow active step</button>
+    <button type="button" id="ciExpand">Expand all logs</button>
+
+  </div>
+  <div id="ciLayout">
+    <div id="ciSteps"></div>
+    <div id="ciPanel"></div>
   </div>
 </main>
 
@@ -293,8 +415,8 @@ function renderStats() {
 function renderTable() {
   const files = visibleFiles();
   const card = $("#tableCard");
-  if (!state) { card.innerHTML = `<div class="empty">Click “Run check” to lint this project.</div>`; return; }
-  if (state.files.length === 0) { card.innerHTML = `<div class="empty">✔ No issues found.</div>`; return; }
+  if (!state) { card.innerHTML = `<div class="empty"><span class="empty-symbol" aria-hidden="true">⌘</span><strong>Your next clean commit starts here</strong><span>Run a check to review lint and formatting diagnostics.</span></div>`; return; }
+  if (state.files.length === 0) { card.innerHTML = `<div class="empty"><span class="empty-symbol fixable" aria-hidden="true">✓</span><strong>No issues found</strong><span>Your code matches the project’s lint and formatting rules.</span></div>`; return; }
   if (files.length === 0) { card.innerHTML = `<div class="empty">No files match your filters.</div>`; return; }
   card.innerHTML = `<table><thead><tr><th>File</th><th>Level</th><th class="num">Issues</th><th>Fix</th></tr></thead><tbody>${files.map((f) => {
     const w = worst(f);
@@ -471,6 +593,8 @@ for (const tab of document.querySelectorAll(".tab")) tab.addEventListener("click
 
 // ---------------------------------------------------------------- CI view
 const ci = { steps: null, enabled: new Set(), results: {}, selected: null, run: null, finished: false, startedAt: 0, seconds: null, error: null, follow: true };
+ci.cancelled = false;
+ci.expanded = new Set();
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
 const ANSI = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`, "g");
@@ -479,8 +603,15 @@ const fmtMs = (ms) => (ms == null ? "–" : ms < 1000 ? `${ms}ms` : `${(ms / 100
 
 async function ciLoad() {
   try {
-    const { steps } = await api("/api/ci/steps");
+    const { steps, problems } = await api("/api/ci/steps");
     ci.steps = steps;
+    ci.problems = [...problems];
+    try {
+      const report = await api("/api/doctor");
+      for (const f of report.findings) {
+        if (f.status === "fail") ci.problems.push(`Setup: ${f.message}${f.fix ? ` — ${f.fix}` : ""}`);
+      }
+    } catch {}
     for (const st of steps) if (st.defaultOn) ci.enabled.add(st.id);
     ci.selected = steps.find((st) => st.defaultOn)?.id ?? steps[0]?.id ?? null;
   } catch (e) { ci.error = e.message; }
@@ -517,46 +648,52 @@ function ciRenderVerdict() {
   if (!ci.finished) { el.innerHTML = ""; return; }
   const res = ci.steps.filter((st) => ci.results[st.id]);
   const failed = res.find((st) => ci.results[st.id].status === "fail");
-  const cancelled = res.some((st) => ci.results[st.id].status === "cancelled");
+  const cancelled = ci.cancelled || res.some((st) => ci.results[st.id].status === "cancelled");
   if (cancelled) el.innerHTML = `<div class="verdict">Run stopped.</div>`;
+  else if (ci.error) el.innerHTML = `<div class="verdict fail">Run could not complete<small>${esc(ci.error)}</small></div>`;
   else if (failed) el.innerHTML = `<div class="verdict fail">CI would fail<small>First failure: ${esc(failed.label)}. Fix it before pushing.</small></div>`;
-  else if (res.length) el.innerHTML = `<div class="verdict pass">All ${plural(res.length, "step")} passed — safe to push<small>Same checks as your CI workflow, run locally.</small></div>`;
+  else if (res.length) el.innerHTML = `<div class="verdict pass">All ${plural(res.length, "step")} passed<small>Same checks as your CI workflow, run locally.</small></div>`;
 }
 
 function ciRenderTable() {
   const card = $("#ciSteps");
-  if (!ci.steps) { card.innerHTML = `<div class="empty">Loading steps…</div>`; return; }
-  const running = !!ci.run;
-  card.innerHTML = `<table><thead><tr><th></th><th>Step</th><th>Status</th><th class="num">Time</th></tr></thead><tbody>${ci.steps.map((st) => {
+  if (!ci.steps) { card.innerHTML = '<div class="empty">Loading steps…</div>'; return; }
+  card.innerHTML = '<div class="ci-jobs-title">Workflow steps<span class="muted">Select checks to include in this run</span></div>' + ci.steps.map((st) => {
     const r = ci.results[st.id];
-    return `<tr data-id="${esc(st.id)}" class="${r?.status === "fail" ? "has-err" : ""} ${st.id === ci.selected ? "sel" : ""}">
-      <td class="chk"><input type="checkbox" data-enable="${esc(st.id)}" aria-label="Include ${esc(st.label)}" ${ci.enabled.has(st.id) ? "checked" : ""} ${running ? "disabled" : ""} /></td>
-      <td class="step"><b>${esc(st.label)}</b><small class="mono">${esc(st.display)}</small>${st.note ? `<small> · ${esc(st.note)}</small>` : ""}</td>
-      <td class="status">${ciStatusCell(r)}</td><td class="num muted">${fmtMs(r?.ms)}</td></tr>`;
-  }).join("")}</tbody></table>`;
+    return `<div class="ci-job ${st.id === ci.selected ? "sel" : ""}"><input type="checkbox" data-enable="${esc(st.id)}" aria-label="Include ${esc(st.label)}" ${ci.enabled.has(st.id) ? "checked" : ""} ${ci.run ? "disabled" : ""} /><button type="button" data-select="${esc(st.id)}" ${st.id === ci.selected ? 'aria-current="step"' : ""}><b>${esc(st.label)}</b><small>${ciStatusCell(r)} · ${fmtMs(r?.ms)}</small></button></div>`;
+  }).join("");
 }
 
 function ciRenderPanel() {
   const panel = $("#ciPanel");
-  const st = ci.steps?.find((x) => x.id === ci.selected);
-  if (!st) { panel.innerHTML = `<div class="empty">Select a step to see its output.</div>`; return; }
-  const r = ci.results[st.id];
-  const text = r?.log ? r.log.replace(ANSI, "") : "";
-  const placeholder = r?.status === "running" ? "Waiting for output…" : "No output yet. Run CI to see this step’s logs.";
-  panel.innerHTML = `<div class="panel-head"><span class="path mono">${esc(st.display)}</span>${ciStatusCell(r)}</div>
-    <pre class="log mono" id="ciLog">${text ? esc(text) : `<span class="muted">${placeholder}</span>`}</pre>`;
-  if (r?.status === "running") panel.scrollTop = panel.scrollHeight;
+  const scrolls = new Map([...panel.querySelectorAll(".ci-log-body")].map((el) => [el.dataset.log, el.scrollTop]));
+  if (!ci.steps) { panel.innerHTML = '<div class="empty">Loading workflow…</div>'; return; }
+  panel.innerHTML = '<div class="ci-log-toolbar"><div><strong>Execution logs</strong><span class="log-caption">Quality checks</span></div><span class="ci-time">Local run</span></div>' + ci.steps.filter((st) => ci.enabled.has(st.id) || ci.results[st.id]).map((st) => {
+    const r = ci.results[st.id];
+    const open = ci.expanded.has(st.id);
+    const text = (r?.log ?? "").replace(ANSI, "");
+    const placeholder = r?.status === "running" ? "Waiting for output…" : r?.status === "skip" ? "This step was skipped." : r?.status === "cancelled" ? "This step was stopped." : "No output recorded.";
+    return `<section class="ci-step" id="ci-step-${esc(st.id)}"><button type="button" class="ci-step-head" data-toggle="${esc(st.id)}" aria-expanded="${open}" aria-controls="ci-body-${esc(st.id)}"><span aria-hidden="true">${open ? "▾" : "▸"}</span><span class="ci-step-label">${esc(st.label)}</span>${ciStatusCell(r)}<span class="ci-time">${fmtMs(r?.ms)}</span></button>${open ? `<div id="ci-body-${esc(st.id)}"><div class="ci-command mono">$ ${esc(st.display)}</div><div class="ci-log-body" data-log="${esc(st.id)}" tabindex="0" aria-label="${esc(st.label)} output">${(text || placeholder).split("\n").map((line, i) => `<div class="ci-log-line"><span class="ci-line-number">${i + 1}</span><span class="ci-line-text">${esc(line)}</span></div>`).join("")}</div></div>` : ""}</section>`;
+  }).join("");
+  for (const el of panel.querySelectorAll(".ci-log-body")) el.scrollTop = ci.follow && ci.results[el.dataset.log]?.status === "running" ? el.scrollHeight : scrolls.get(el.dataset.log) ?? 0;
 }
 
 function ciRender() {
   const busy = !!ci.run;
   const ciRunBtn = $("#ciRun");
-  ciRunBtn.textContent = busy ? "Stop" : "Run CI";
+  ciRunBtn.textContent = busy ? "Cancel run" : ci.finished ? "Re-run checks" : "Run checks";
   ciRunBtn.classList.toggle("primary", !busy);
   ciRunBtn.disabled = !ci.steps || (!busy && ci.enabled.size === 0);
   $("#ciStop").disabled = busy;
-  $("#ciStatus").textContent = busy ? "running…" : !ci.finished ? "idle" : Object.values(ci.results).some((r) => r.status === "fail") ? "failed" : "passed";
-  $("#ciNotice").innerHTML = ci.error ? `<div class="error-box">${esc(ci.error)}</div>` : "";
+  $("#ciStatus").textContent = busy ? "running…" : !ci.finished ? "idle" : ci.cancelled ? "stopped" : ci.error ? "error" : Object.values(ci.results).some((r) => r.status === "fail") ? "failed" : "passed";
+  $("#ciNotice").innerHTML = ci.error
+    ? `<div class="error-box">${esc(ci.error)}</div>`
+    : (ci.problems ?? []).map((p) => `<div class="error-box">${esc(p)}</div>`).join("");
+  const visible = ci.steps?.filter((st) => ci.enabled.has(st.id) || ci.results[st.id]) ?? [];
+  $("#ciExpand").textContent = visible.length && visible.every((st) => ci.expanded.has(st.id)) ? "Collapse all logs" : "Expand all logs";
+  $("#ciExpand").disabled = !visible.length;
+  $("#ciFollow").setAttribute("aria-pressed", String(ci.follow));
+  $("#ciRetry").hidden = busy || !Object.values(ci.results).some((r) => r.status === "fail");
   ciRenderStats(); ciRenderVerdict(); ciRenderTable(); ciRenderPanel();
 }
 
@@ -567,18 +704,19 @@ function ciSoftRender() {
 }
 
 function ciEvent(e) {
-  if (e.type === "start") { ciRes(e.id).status = "running"; if (ci.follow) ci.selected = e.id; ciRender(); }
-  else if (e.type === "log") { ciRes(e.id).log += e.text; if (e.id === ci.selected) ciSoftRender(); }
-  else if (e.type === "end") { const r = ciRes(e.id); r.status = e.code === 0 ? "pass" : "fail"; r.ms = e.ms; if (e.code !== 0 && ci.follow) ci.selected = e.id; ciRender(); }
+  if (e.type === "start") { ciRes(e.id).status = "running"; if (ci.follow) { ci.selected = e.id; ci.expanded.add(e.id); } ciRender(); }
+  else if (e.type === "log") { ciRes(e.id).log += e.text; if (ci.expanded.has(e.id)) ciSoftRender(); }
+  else if (e.type === "end") { const r = ciRes(e.id); r.status = e.code === 0 ? "pass" : "fail"; r.ms = e.ms; if (e.code !== 0) { ci.expanded.add(e.id); if (ci.follow) ci.selected = e.id; } else if (ci.follow) ci.expanded.delete(e.id); ciRender(); }
   else if (e.type === "skip") { ciRes(e.id).status = "skip"; ciRender(); }
 }
 
-async function ciStart() {
-  const ids = ci.steps.filter((st) => ci.enabled.has(st.id)).map((st) => st.id);
+async function ciStart(onlyIds) {
+  const ids = onlyIds ?? ci.steps.filter((st) => ci.enabled.has(st.id)).map((st) => st.id);
   if (!ids.length) return;
+  ci.expanded.clear();
   ci.results = {};
   for (const id of ids) ciRes(id);
-  ci.finished = false; ci.error = null; ci.seconds = null; ci.follow = true; ci.startedAt = Date.now();
+  ci.finished = false; ci.cancelled = false; ci.error = null; ci.seconds = null; ci.follow = true; ci.startedAt = Date.now();
   const ctrl = new AbortController();
   ci.run = ctrl;
   const tick = setInterval(ciRenderStats, 1000);
@@ -606,6 +744,7 @@ async function ciStart() {
     }
   } catch (e) {
     if (e.name === "AbortError") {
+      ci.cancelled = true;
       for (const r of Object.values(ci.results)) {
         if (r.status === "running") r.status = "cancelled";
         else if (r.status === "pending") r.status = "skip";
@@ -627,9 +766,36 @@ $("#ciSteps").addEventListener("click", (e) => {
     ciRender();
     return;
   }
-  const tr = e.target.closest("tr[data-id]");
-  if (tr) { ci.selected = tr.dataset.id; ci.follow = false; ciRender(); }
+  const job = e.target.closest("[data-select]");
+  if (job) {
+    ci.selected = job.dataset.select; ci.expanded.add(ci.selected); ci.follow = false; ciRender();
+    document.getElementById(`ci-step-${ci.selected}`)?.scrollIntoView({ block: "nearest" });
+  }
 });
+
+$("#ciPanel").addEventListener("click", (e) => {
+  const head = e.target.closest("[data-toggle]");
+  if (!head) return;
+  const id = head.dataset.toggle;
+  if (ci.expanded.has(id)) ci.expanded.delete(id); else ci.expanded.add(id);
+  ci.selected = id; ci.follow = false; ciRender();
+  $("#ciPanel").querySelector(`[data-toggle="${id}"]`)?.focus();
+});
+$("#ciExpand").addEventListener("click", () => {
+  const visible = ci.steps?.filter((st) => ci.enabled.has(st.id) || ci.results[st.id]) ?? [];
+  const allOpen = visible.every((st) => ci.expanded.has(st.id));
+  for (const st of visible) { if (allOpen) ci.expanded.delete(st.id); else ci.expanded.add(st.id); }
+  ci.follow = false; ciRender();
+});
+$("#ciFollow").addEventListener("click", () => {
+  ci.follow = !ci.follow;
+  if (ci.follow) {
+    const active = ci.steps?.find((st) => ci.results[st.id]?.status === "running");
+    if (active) { ci.selected = active.id; ci.expanded.add(active.id); }
+  }
+  ciRender();
+});
+$("#ciRetry").addEventListener("click", () => ciStart(ci.steps.filter((st) => ci.results[st.id]?.status === "fail").map((st) => st.id)));
 
 showView(location.hash === "#ci" ? "ci" : "lint");
 </script>
