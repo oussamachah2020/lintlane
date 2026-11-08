@@ -311,3 +311,64 @@ set `LINTLANE_INSTALL_SPEC` to a tarball from `npm pack` when running `init`.
 ## License
 
 MIT
+
+## AI assistants: MCP server and skill
+
+Lintlane includes a local stdio MCP server and a reusable
+[Lintlane skill](skills/lintlane/SKILL.md). The server uses the
+[official MCP SDK](https://ts.sdk.modelcontextprotocol.io/).
+The skill tells an assistant how to diagnose, check, fix, and verify a project;
+connecting the server exposes the actual tools.
+
+Configure an MCP-capable host with the following server entry. Replace both
+absolute paths with your installed Lintlane and target project paths:
+
+```json
+{
+  "mcpServers": {
+    "lintlane": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/node_modules/lintlane/bin/mcp.mjs",
+        "--project",
+        "/absolute/path/to/project",
+        "--allow-write"
+      ]
+    }
+  }
+}
+```
+
+For this source checkout, use `/absolute/path/to/lintlane/bin/mcp.mjs` instead.
+After package installation, `lintlane-mcp --project /absolute/path/to/project`
+is also available as a binary. No dashboard or HTTP server is needed.
+
+Omit `--allow-write` to disable the fix tool. This flag controls Biome fixes,
+not project-script execution: `lintlane_run` can run build, typecheck, and test
+scripts, which may write artifacts. Connect only to projects whose scripts you
+intend the assistant to execute. The configured project is fixed for the session;
+explicit file paths are checked against it, including symlink resolution. This
+is a tool boundary, not an OS sandbox for dependencies or repository scripts.
+
+| MCP tool | Purpose |
+| --- | --- |
+| `lintlane_doctor` | Setup diagnostics with a parsed report and write capability. |
+| `lintlane_checks` | Available check IDs, commands, defaults, and configuration problems. |
+| `lintlane_check` | Biome diagnostics on selected paths, defaulting to `.`. |
+| `lintlane_fix` | Supported Biome fixes on explicit paths; requires `--allow-write`. |
+| `lintlane_run` | Selected `biome`, `typecheck`, `build`, and `test` checks in pipeline order. |
+| `lintlane_check_commit` | Validate a proposed commit message using commitlint. |
+| `lintlane_preview_setup` | Preview initialization without changing files or installing dependencies. |
+
+Command results include exit code, stdout, stderr, timeout, and truncation
+flags. Calls are serialized, limited to two minutes, and retain at most 256 KiB
+of output. A failing check returns an MCP tool error with its diagnostics.
+Dependency installation, interactive prompts, and Git mutations are not exposed.
+Commitizen remains available through `lintlane commit` in a terminal.
+
+To make the skill discoverable in Codex, copy the `skills/lintlane` directory
+from this checkout or the installed package into `~/.codex/skills/lintlane`.
+Other hosts can load the same Markdown instructions through their skill system.
+The skill does not itself register the MCP server; configure both separately.
+Then ask, for example: “Use Lintlane to check the files I changed, fix supported
+issues, and run the available typecheck.”

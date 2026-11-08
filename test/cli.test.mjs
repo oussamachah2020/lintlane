@@ -60,13 +60,15 @@ describe("runs on Node.js without Bun", () => {
     assert.equal(KIT_PKG.engines.bun, undefined);
   });
 
-  it("depends only on the tools it orchestrates, pinned exactly", () => {
+  it("pins orchestrated tools and MCP dependencies exactly", () => {
     assert.deepEqual(Object.keys(KIT_PKG.dependencies).sort(), [
       "@commitlint/cli",
       "@commitlint/config-conventional",
+      "@modelcontextprotocol/sdk",
       "commitizen",
       "cz-conventional-changelog",
       "lint-staged",
+      "zod",
     ]);
     for (const [name, range] of Object.entries(KIT_PKG.dependencies)) {
       assert.match(range, /^\d+\.\d+\.\d+$/, `${name} is pinned`);
