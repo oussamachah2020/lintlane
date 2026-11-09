@@ -7,7 +7,7 @@
 //   pre-push            commitlint    (checks every commit about to be pushed)
 import { spawnSync } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
-import { resolveTool, runInherit, runProcess } from "./proc.mjs";
+import { resolveCommitizen, resolveTool, runInherit, runProcess } from "./proc.mjs";
 
 export const HOOKS = ["pre-commit", "commit-msg", "prepare-commit-msg", "pre-push"];
 
@@ -48,7 +48,7 @@ async function commitMsg(cwd, [file]) {
 function prepareCommitMsg(cwd, [file, source]) {
   if (!file || source || process.env.CI || process.env.LINTLANE_NO_PROMPT) return 0;
   if (process.platform === "win32") return 0;
-  const argv = tool("commitizen", "git-cz");
+  const argv = resolveCommitizen();
   if (!argv) return 0;
   let tty;
   try {

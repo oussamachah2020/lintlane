@@ -1,6 +1,6 @@
 {
   "name": "lintlane",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "description": "Code-quality workflow for JavaScript, React and Next.js: orchestrates Biome, lint-staged, Husky, Commitizen and commitlint, with a local dashboard and CI",
   "license": "MIT",
   "type": "module",

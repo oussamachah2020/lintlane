@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const isWindows = process.platform === "win32";
 
@@ -46,6 +47,12 @@ export function resolveTool(pkgName, binName = pkgName) {
   } catch {
     return null;
   }
+}
+
+/** Run Commitizen through the bundled-adapter compatibility entry point. */
+export function resolveCommitizen() {
+  if (!resolveTool("commitizen", "git-cz")) return null;
+  return [process.execPath, fileURLToPath(new URL("./commitizen.cjs", import.meta.url))];
 }
 
 // Windows can't spawn .cmd shims (npm, pnpm, yarn, node_modules/.bin/*) without

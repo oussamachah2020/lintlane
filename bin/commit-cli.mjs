@@ -6,7 +6,7 @@
 // everything after -- goes to `git commit` (e.g. `-- -n` to skip hooks).
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveTool, runInherit } from "./proc.mjs";
+import { resolveCommitizen, runInherit } from "./proc.mjs";
 
 export const COMMIT_HELP = `Usage: lintlane commit [options] [-- <git commit args>]
 
@@ -30,7 +30,11 @@ const err = (text) => process.stderr.write(`${text}\n`);
 function hasAdapter(cwd) {
   try {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
-    return Boolean(pkg?.config?.commitizen?.path) || existsSync(join(cwd, ".czrc"));
+    return (
+      Boolean(pkg?.config?.commitizen?.path) ||
+      existsSync(join(cwd, ".czrc")) ||
+      existsSync(join(cwd, ".cz.json"))
+    );
   } catch {
     return false;
   }
@@ -41,7 +45,7 @@ export async function runCommit({ argv, gitArgs = [], cwd = process.cwd() }) {
     process.stdout.write(COMMIT_HELP);
     return 0;
   }
-  const cz = resolveTool("commitizen", "git-cz");
+  const cz = resolveCommitizen();
   if (!cz) {
     err("✘ Commitizen isn't installed. Reinstall lintlane with your package manager.");
     return 1;
