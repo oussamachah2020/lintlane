@@ -44,6 +44,13 @@ npx lintlane run         # Biome + typecheck + build + tests, like CI
 npx lintlane ui          # the dashboard
 ```
 
+To install lintlane directly as a development dependency:
+
+```sh
+npm install -D lintlane
+npx lintlane init
+```
+
 ## Requirements
 
 - **Node.js 22 or newer.** Any package manager: npm, pnpm, Yarn or Bun
@@ -162,9 +169,23 @@ optional block below. Replace the file with your own config any time.
 }
 ```
 
-The guided prompt is Commitizen's standard `cz-conventional-changelog`
-(`config.commitizen.path = "lintlane/presets/commitizen.cjs"`); configure it like
-any Commitizen adapter.
+The guided prompt is Commitizen's standard `cz-conventional-changelog`.
+`lintlane init` adds this adapter configuration to `package.json`:
+
+```json
+{
+  "config": {
+    "commitizen": {
+      "path": "lintlane/presets/commitizen.cjs"
+    }
+  }
+}
+```
+
+As of **4.1.1**, `lintlane commit` and the guided Git hook resolve this adapter
+from lintlane's installation. Existing projects using this configuration need
+only upgrade lintlane; no adapter path change is required. Custom adapter paths
+are preserved, and `.czrc` and `.cz.json` configuration files are also supported.
 
 ## `doctor`
 
@@ -261,18 +282,30 @@ lintlane 4 replaces its own staged-file and commit code with the tools above.
 
 Start with `npx lintlane doctor`; each problem comes with a fix.
 
-| Symptom                                      | Likely cause / fix                                                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Hooks don't run                              | `core.hooksPath` isn't `.husky/_`. Run your package manager's `husky` (via `install`, which runs `prepare`).             |
-| "lintlane: node_modules/lintlane not found"  | Dependencies aren't installed. Run your package manager's install.                                                       |
-| `biome: command not found` in pre-commit     | Biome isn't a dependency of the project. Install `@biomejs/biome`.                                                       |
-| lint-staged: "no configuration found"        | Add a `lint-staged` key (run `init`).                                                                                    |
-| commitlint: "Please add rules"               | Missing `commitlint.config.mjs` (run `init`).                                                                            |
-| `lintlane commit` says no adapter configured | Add `config.commitizen.path` (run `init`).                                                                               |
-| No prompt on `git commit`                    | Expected for `-m`, merges, amends, CI, GUI clients, Windows. Use `lintlane commit`.                                      |
-| Old hook silently does nothing               | It calls a 3.x file that no longer exists. `init` upgrades untouched ones; see [Migrating](#migrating-from-lintlane-3x). |
-| Dashboard says Forbidden                     | Open the exact URL printed by `lintlane ui` (it includes the token).                                                     |
-| CI doesn't run a check                       | The workflow predates the check. Add the step, or disable the check under `lintlane.checks`.                             |
+| Symptom                                                       | Likely cause / fix                                                                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Hooks don't run                                               | `core.hooksPath` isn't `.husky/_`. Run your package manager's `husky` (via `install`, which runs `prepare`).             |
+| "lintlane: node_modules/lintlane not found"                   | Dependencies aren't installed. Run your package manager's install.                                                       |
+| `biome: command not found` in pre-commit                      | Biome isn't a dependency of the project. Install `@biomejs/biome`.                                                       |
+| lint-staged: "no configuration found"                         | Add a `lint-staged` key (run `init`).                                                                                    |
+| commitlint: "Please add rules"                                | Missing `commitlint.config.mjs` (run `init`).                                                                            |
+| `lintlane commit` says no adapter configured                  | Add `config.commitizen.path` (run `init`).                                                                               |
+| Commitizen cannot resolve `…/lintlane/presets/commitizen.cjs` | Upgrade to lintlane **4.1.1 or newer**. Earlier versions treated the adapter as a path relative to your Git repository.  |
+| No prompt on `git commit`                                     | Expected for `-m`, merges, amends, CI, GUI clients, Windows. Use `lintlane commit`.                                      |
+| Old hook silently does nothing                                | It calls a 3.x file that no longer exists. `init` upgrades untouched ones; see [Migrating](#migrating-from-lintlane-3x). |
+| Dashboard says Forbidden                                      | Open the exact URL printed by `lintlane ui` (it includes the token).                                                     |
+| CI doesn't run a check                                        | The workflow predates the check. Add the step, or disable the check under `lintlane.checks`.                             |
+
+### npm deprecation warnings
+
+Installing lintlane can report deprecation warnings for these transitive dependencies:
+
+- `glob@7.2.3` and `inflight@1.0.6`, brought in by Commitizen.
+- `git-raw-commits@4.0.0`, brought in by commitlint.
+
+These warnings remain in **4.1.1** and are separate from the commit adapter fix.
+They do not by themselves mean installation failed. Check the install exit code
+and use `npm audit` to inspect advisories for your installed dependency tree.
 
 ## Limitations
 
@@ -291,7 +324,7 @@ Requires Node.js 22 or newer.
 npm test                  # unit + integration tests (about 40 seconds, no network)
 npm run test:e2e          # real npm / pnpm / yarn / bun installs (needs network)
 npm run check             # lint and format this repository
-npm run verify:release [npm|pnpm|yarn|bun]   # pack, install in a fresh project, init, doctor, real commits
+node scripts/verify-release.mjs [npm|pnpm|yarn|bun]   # pack, install in a fresh project, init, doctor, real commits
 ```
 
 | File                             | What it covers                                                                              |
@@ -300,6 +333,7 @@ npm run verify:release [npm|pnpm|yarn|bun]   # pack, install in a fresh project,
 | `test/setup.test.mjs`            | `init --dry-run`, idempotency, upgrades from 3.x hooks, `doctor`.                           |
 | `test/checks.test.mjs`           | The shared checks list, generated CI, `lintlane run`.                                       |
 | `test/cli.test.mjs`              | Running on Node without Bun, packaging, `init`. Package managers are **mocked** here.       |
+| `test/commit.test.mjs`           | Bundled adapter resolution, custom adapter paths, and forwarding Git arguments.             |
 | `test/package-managers.test.mjs` | Package-manager detection and command generation (pure).                                    |
 | `test/ui.test.mjs`               | Dashboard: auth, Host/CSP hardening, every API route, Stop.                                 |
 | `test/e2e.test.mjs`              | **Real** package managers and the packed tarball. Needs `LINTLANE_E2E=1`.                   |
@@ -350,15 +384,15 @@ intend the assistant to execute. The configured project is fixed for the session
 explicit file paths are checked against it, including symlink resolution. This
 is a tool boundary, not an OS sandbox for dependencies or repository scripts.
 
-| MCP tool | Purpose |
-| --- | --- |
-| `lintlane_doctor` | Setup diagnostics with a parsed report and write capability. |
-| `lintlane_checks` | Available check IDs, commands, defaults, and configuration problems. |
-| `lintlane_check` | Biome diagnostics on selected paths, defaulting to `.`. |
-| `lintlane_fix` | Supported Biome fixes on explicit paths; requires `--allow-write`. |
-| `lintlane_run` | Selected `biome`, `typecheck`, `build`, and `test` checks in pipeline order. |
-| `lintlane_check_commit` | Validate a proposed commit message using commitlint. |
-| `lintlane_preview_setup` | Preview initialization without changing files or installing dependencies. |
+| MCP tool                 | Purpose                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| `lintlane_doctor`        | Setup diagnostics with a parsed report and write capability.                 |
+| `lintlane_checks`        | Available check IDs, commands, defaults, and configuration problems.         |
+| `lintlane_check`         | Biome diagnostics on selected paths, defaulting to `.`.                      |
+| `lintlane_fix`           | Supported Biome fixes on explicit paths; requires `--allow-write`.           |
+| `lintlane_run`           | Selected `biome`, `typecheck`, `build`, and `test` checks in pipeline order. |
+| `lintlane_check_commit`  | Validate a proposed commit message using commitlint.                         |
+| `lintlane_preview_setup` | Preview initialization without changing files or installing dependencies.    |
 
 Command results include exit code, stdout, stderr, timeout, and truncation
 flags. Calls are serialized, limited to two minutes, and retain at most 256 KiB
