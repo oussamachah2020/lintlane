@@ -234,3 +234,14 @@ describe("lintlane doctor", () => {
     assert.equal(read(dir, "package.json"), pkg);
   });
 });
+
+it("preserves local tarball and version-range lintlane declarations", () => {
+  for (const section of ["dependencies", "devDependencies"]) {
+    for (const spec of ["file:../lintlane-4.1.2.tgz", "^4.1.1"]) {
+      const dir = project({ pkg: { name: "app", [section]: { lintlane: spec } } });
+      const result = runCli(["init", "--dry-run"], { cwd: dir });
+      assert.equal(result.status, 0);
+      assert.doesNotMatch(result.stdout, /would run:.*lintlane@/);
+    }
+  }
+});

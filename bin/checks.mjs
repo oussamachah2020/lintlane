@@ -20,7 +20,7 @@ const FROZEN_INSTALL = {
 };
 
 const NPM_DEFAULT_TEST = /no test specified/i;
-const CHECK_IDS = ["biome", "typecheck", "build", "test"];
+const CHECK_IDS = ["biome", "typecheck", "build", "test", "e2e"];
 
 function firstScript(scripts, names) {
   return names.find((name) => typeof scripts[name] === "string");
@@ -145,6 +145,19 @@ export function resolveChecks({ cwd, biome, pmName, pkg }) {
     }
   }
 
+  if (enabled("e2e")) {
+    const script = scriptFor("e2e", ["test:e2e"]);
+    if (script)
+      steps.push({
+        id: "e2e",
+        label: "Browser tests",
+        cmd: run(script),
+        script,
+        defaultOn: true,
+        ci: false,
+        note: "Browser dependencies must be installed separately.",
+      });
+  }
   return {
     steps: steps.map((step) => ({ ...step, display: step.display ?? step.cmd.join(" ") })),
     problems,

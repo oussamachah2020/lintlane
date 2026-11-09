@@ -36,6 +36,7 @@ const BIOME_SUBCOMMANDS = {
 const HELP = `Usage: ${RUNNER} ${KIT_NAME} <command> [options]
 
 Commands:
+  init-tests       Set up unit, component and browser tests
   init [options]   Set up Biome, scripts, hooks, and CI in the current project
   check [paths]     Run biome check (defaults to .)
   check:fix [paths] Run biome check --write (defaults to .)
@@ -241,6 +242,15 @@ if (command === "ui") {
   await new Promise(() => {});
 }
 
+if (command === "init-tests") {
+  try {
+    await (await import("./init-tests.mjs")).initTests(cwd, values);
+  } catch (error) {
+    fail(error.message);
+  }
+  process.exit(0);
+}
+
 if (command !== "init") {
   fail(
     `Unknown command "${command}". Usage: ${RUNNER} ${KIT_NAME} <init|check|check:fix|ci|run|doctor|commit|check-commit|ui> [options]`,
@@ -293,7 +303,7 @@ const declared = { ...pkg.dependencies, ...pkg.devDependencies };
 // Only install what's missing, so an existing Biome or husky version is never bumped.
 const devPackages = [];
 if (!("@biomejs/biome" in declared)) devPackages.push("@biomejs/biome");
-if (process.env.LINTLANE_INSTALL_SPEC || declared[KIT_NAME] !== KIT_VERSION)
+if (process.env.LINTLANE_INSTALL_SPEC || !(KIT_NAME in declared))
   devPackages.push(kitSpec);
 if (!values["no-hooks"] && !("husky" in declared)) devPackages.push("husky");
 

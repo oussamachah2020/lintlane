@@ -406,3 +406,22 @@ Other hosts can load the same Markdown instructions through their skill system.
 The skill does not itself register the MCP server; configure both separately.
 Then ask, for example: “Use Lintlane to check the files I changed, fix supported
 issues, and run the available typecheck.”
+
+## Testing setup
+
+Run `npx lintlane init-tests --dry-run` to preview testing setup, then
+`npx lintlane init-tests` to apply it. Use `--skip-install` to install dependencies
+later and `--no-ci` to omit the testing workflow. Existing scripts and files are
+preserved. New setups use Vitest, React Testing Library for React projects, and
+Playwright for web applications. Run setup inside an individual workspace package.
+
+Use `npm test`, `npm run test:watch`, and `npm run test:e2e` (or your package
+manager's equivalents). Browser binaries require a separate local install:
+`npx playwright install chromium`. Check the generated server URL and command
+for your framework before running browser tests. Replace starter examples with
+application behavior tests. Test async Next.js server components through E2E.
+
+`lintlane run e2e` runs the browser script; disable it locally through
+`lintlane.checks.e2e: false`. The generated testing workflow installs Chromium
+and retains failure reports. Existing workflows are preserved; review them to
+avoid duplicate test runs. Git hooks do not run tests.
