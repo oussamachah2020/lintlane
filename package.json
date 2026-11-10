@@ -1,13 +1,13 @@
 {
   "name": "lintlane",
-  "version": "4.1.3",
+  "version": "4.1.4",
   "description": "Code-quality workflow for JavaScript, React and Next.js: orchestrates Biome, lint-staged, Husky, Commitizen and commitlint, with a local dashboard and CI",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oussamachah2020/lintlane.git"
   },
-  "homepage": "https://github.com/oussamachah2020/lintlane#readme",
+  "homepage": "https://lintlane-lp.vercel.app",
   "bugs": {
     "url": "https://github.com/oussamachah2020/lintlane/issues"
   },
