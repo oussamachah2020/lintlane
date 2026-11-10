@@ -1,5 +1,7 @@
 # lintlane
 
+[GitHub repository](https://github.com/oussamachah2020/lintlane)
+
 A code-quality workflow for JavaScript, React and Next.js projects. lintlane
 **orchestrates proven tools instead of reimplementing them**: one command wires
 them together, one config drives the checks everywhere, and a local dashboard
