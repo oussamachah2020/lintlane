@@ -67,6 +67,7 @@ describe("runs on Node.js without Bun", () => {
       "@modelcontextprotocol/sdk",
       "commitizen",
       "cz-conventional-changelog",
+      "jest-diff",
       "lint-staged",
       "zod",
     ]);
@@ -98,7 +99,7 @@ describe("runs on Node.js without Bun", () => {
     skip: nobun ? false : "Bun is on the system PATH",
   }, () => {
     const dir = project();
-    const result = runCli(["init", "--skip-install"], { cwd: dir, env: nobun.env });
+    const result = runCli(["init", "--yes", "--skip-install"], { cwd: dir, env: nobun.env });
     assert.equal(result.status, 0, result.stderr + result.stdout);
     assert.match(result.stdout, /Detected package manager: npm/);
     assert.equal(existsSync(join(dir, "biome.json")), true);
@@ -196,7 +197,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
       const fake = fakePackageManagers();
       const dir = project({ files: { [lockfile]: "" } });
 
-      const result = runCli(["init"], { cwd: dir, env: fake.env });
+      const result = runCli(["init", "--yes"], { cwd: dir, env: fake.env });
       assert.equal(result.status, 0, result.stderr + result.stdout);
 
       const calls = fake.calls();
@@ -231,7 +232,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
   it("uses the tool that launched lintlane when there is no lockfile (pnpm dlx)", () => {
     const fake = fakePackageManagers();
     const dir = project();
-    const result = runCli(["init", "--no-ci"], {
+    const result = runCli(["init", "--yes", "--no-ci"], {
       cwd: dir,
       env: { ...fake.env, npm_config_user_agent: "pnpm/9.1.0 npm/? node/v22.1.0 linux x64" },
     });
@@ -245,7 +246,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
   it("falls back to npm, not Bun, when nothing identifies the package manager", () => {
     const fake = fakePackageManagers();
     const dir = project();
-    const result = runCli(["init", "--no-ci"], { cwd: dir, env: fake.env });
+    const result = runCli(["init", "--yes", "--no-ci"], { cwd: dir, env: fake.env });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(
       fake.calls().map((call) => call.pm),
@@ -259,7 +260,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
       pkg: { name: "app", packageManager: "yarn@4.1.0" },
       files: { "package-lock.json": "{}" },
     });
-    const result = runCli(["init", "--no-ci"], { cwd: dir, env: fake.env });
+    const result = runCli(["init", "--yes", "--no-ci"], { cwd: dir, env: fake.env });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(
       fake.calls().map((call) => call.pm),
@@ -270,7 +271,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
   it("installs from LINTLANE_INSTALL_SPEC when set (for testing a local build)", () => {
     const fake = fakePackageManagers();
     const dir = project({ files: { "package-lock.json": "{}" } });
-    const result = runCli(["init", "--no-ci"], {
+    const result = runCli(["init", "--yes", "--no-ci"], {
       cwd: dir,
       env: { ...fake.env, LINTLANE_INSTALL_SPEC: "/tmp/lintlane-build.tgz" },
     });
@@ -282,14 +283,14 @@ describe("package manager used by init (MOCKED package managers)", () => {
   it("does not install husky with --no-hooks", () => {
     const fake = fakePackageManagers();
     const dir = project({ files: { "package-lock.json": "{}" } });
-    runCli(["init", "--no-hooks", "--no-ci"], { cwd: dir, env: fake.env });
+    runCli(["init", "--yes", "--no-hooks", "--no-ci"], { cwd: dir, env: fake.env });
     assert.ok(!fake.calls()[0].argv.includes("husky"));
   });
 
   it("fails with a clear message, and writes nothing, when the package manager isn't installed", () => {
     const fake = fakePackageManagers([]); // no package manager executables at all
     const dir = project({ files: { "pnpm-lock.yaml": "" } });
-    const result = runCli(["init"], { cwd: dir, env: fake.env });
+    const result = runCli(["init", "--yes"], { cwd: dir, env: fake.env });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /"pnpm" was not found/);
     assert.match(result.stderr, /--skip-install/);
@@ -306,7 +307,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
     );
     spawnSync("chmod", ["755", join(fake.env.PATH.split(":")[0], "npm")]);
     const dir = project();
-    const result = runCli(["init"], { cwd: dir, env: fake.env });
+    const result = runCli(["init", "--yes"], { cwd: dir, env: fake.env });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Install failed/);
     assert.match(result.stderr, /E404 not found/);
@@ -317,7 +318,7 @@ describe("package manager used by init (MOCKED package managers)", () => {
 describe("init in a new project (no install)", () => {
   it("writes the config, scripts, hooks and workflow", () => {
     const dir = project({ pkg: { name: "app", dependencies: { react: "19" } } });
-    const result = runCli(["init", "--skip-install"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr + result.stdout);
     assert.match(result.stdout, /Detected React — using preset "base"/);
 
@@ -355,7 +356,7 @@ describe("init in a new project (no install)", () => {
 
   it("the generated pre-commit hook is the safe one", () => {
     const dir = project();
-    runCli(["init", "--skip-install"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     const hook = read(dir, ".husky/pre-commit");
     assert.match(hook, /cli\.mjs hook pre-commit/);
     assert.doesNotMatch(hook, /update-index/);
@@ -364,7 +365,9 @@ describe("init in a new project (no install)", () => {
 
   it("uses the next preset and ignores for Next.js apps", () => {
     const dir = project({ pkg: { name: "app", dependencies: { next: "15", react: "19" } } });
-    const result = runCli(["init", "--skip-install", "--no-hooks", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-hooks", "--no-ci"], {
+      cwd: dir,
+    });
     assert.equal(result.status, 0, result.stderr);
     const config = json(dir, "biome.json");
     assert.deepEqual(config.extends, ["lintlane/biome/next"]);
@@ -373,42 +376,44 @@ describe("init in a new project (no install)", () => {
 
   it("honors --preset", () => {
     const dir = project();
-    runCli(["init", "--skip-install", "--no-hooks", "--no-ci", "--preset", "strict"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install", "--no-hooks", "--no-ci", "--preset", "strict"], {
+      cwd: dir,
+    });
     assert.deepEqual(json(dir, "biome.json").extends, ["lintlane/biome/strict"]);
   });
 
   it("rejects an unknown preset and a missing package.json", () => {
     const dir = project();
-    const bad = runCli(["init", "--skip-install", "--preset", "nope"], { cwd: dir });
+    const bad = runCli(["init", "--yes", "--skip-install", "--preset", "nope"], { cwd: dir });
     assert.equal(bad.status, 1);
     assert.match(bad.stderr, /Invalid preset "nope"/);
 
     const empty = tempDir();
-    const none = runCli(["init", "--skip-install"], { cwd: empty });
+    const none = runCli(["init", "--yes", "--skip-install"], { cwd: empty });
     assert.equal(none.status, 1);
     assert.match(none.stderr, /No package\.json/);
   });
 
   it("--no-hooks, --no-commit-lint and --no-ci leave the right things out", () => {
     const noHooks = project();
-    runCli(["init", "--skip-install", "--no-hooks"], { cwd: noHooks });
+    runCli(["init", "--yes", "--skip-install", "--no-hooks"], { cwd: noHooks });
     assert.equal(existsSync(join(noHooks, ".husky")), false);
     assert.equal(json(noHooks, "package.json").scripts.prepare, undefined);
     assert.doesNotMatch(read(noHooks, ".github/workflows/biome.yml"), /check-commit/);
 
     const noLint = project();
-    runCli(["init", "--skip-install", "--no-commit-lint"], { cwd: noLint });
+    runCli(["init", "--yes", "--skip-install", "--no-commit-lint"], { cwd: noLint });
     assert.deepEqual(readdirSync(join(noLint, ".husky")), ["pre-commit"]);
     assert.doesNotMatch(read(noLint, ".github/workflows/biome.yml"), /check-commit/);
 
     const noCi = project();
-    runCli(["init", "--skip-install", "--no-ci"], { cwd: noCi });
+    runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: noCi });
     assert.equal(existsSync(join(noCi, ".github")), false);
   });
 
   it("skips the hooks, with a warning, when the project isn't a git repository", () => {
     const dir = project({ repo: false });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /No \.git directory found/);
     assert.equal(existsSync(join(dir, ".husky")), false);
@@ -422,7 +427,7 @@ describe("init in a new project (no install)", () => {
       ["package-lock.json", /npm ci/],
     ]) {
       const dir = project({ files: { [lockfile]: "" } });
-      runCli(["init", "--skip-install", "--no-hooks"], { cwd: dir });
+      runCli(["init", "--yes", "--skip-install", "--no-hooks"], { cwd: dir });
       assert.match(read(dir, ".github/workflows/biome.yml"), expected, lockfile);
     }
   });
@@ -448,7 +453,7 @@ describe("init in an existing project preserves what's there", () => {
 
   it("never overwrites config, scripts, hooks or the workflow, and appends husky to prepare", () => {
     const dir = project({ pkg, files: customFiles });
-    const result = runCli(["init", "--skip-install"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr + result.stdout);
 
     for (const [path, content] of Object.entries(customFiles))
@@ -467,7 +472,7 @@ describe("init in an existing project preserves what's there", () => {
 
   it("is idempotent: a second run changes nothing", () => {
     const dir = project();
-    runCli(["init", "--skip-install"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     const snapshot = (d) =>
       Object.fromEntries(
         [
@@ -478,14 +483,14 @@ describe("init in an existing project preserves what's there", () => {
         ].map((p) => [p, read(d, p)]),
       );
     const first = snapshot(dir);
-    const second = runCli(["init", "--skip-install"], { cwd: dir });
+    const second = runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     assert.equal(second.status, 0, second.stderr);
     assert.deepEqual(snapshot(dir), first);
   });
 
   it("leaves a prepare script that already runs husky alone", () => {
     const dir = project({ pkg: { name: "app", scripts: { prepare: "husky" } } });
-    runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(json(dir, "package.json").scripts.prepare, "husky");
   });
 
@@ -493,7 +498,7 @@ describe("init in an existing project preserves what's there", () => {
     const legacy =
       "./node_modules/.bin/biome check --write --staged --no-errors-on-unmatched --files-ignore-unknown=true\ngit update-index --again\n";
     const dir = project({ files: { ".husky/pre-commit": legacy } });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(read(dir, ".husky/pre-commit"), template("pre-commit"));
     assert.equal(isExecutable(dir, ".husky/pre-commit"), true);
@@ -503,7 +508,7 @@ describe("init in an existing project preserves what's there", () => {
   it("warns about, but does not rewrite, a customized hook that still re-stages unsafely", () => {
     const custom = `npm run lint\n./node_modules/.bin/biome check --write --staged\ngit update-index --again\n`;
     const dir = project({ files: { ".husky/pre-commit": custom } });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(read(dir, ".husky/pre-commit"), custom, "customized hooks are never rewritten");
     assert.match(result.stdout, /update-index --again/);
     assert.match(result.stdout, /can stage changes you didn't stage/);
@@ -513,7 +518,7 @@ describe("init in an existing project preserves what's there", () => {
 describe("generated hooks work end to end", () => {
   it("a project set up by init rejects bad messages and formats staged files", () => {
     const dir = project({ files: { ".gitignore": "node_modules\n" } });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr);
 
     // Stand in for `npm install`: lintlane resolvable from node_modules; hooks live in .husky.

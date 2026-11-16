@@ -1,6 +1,6 @@
 {
   "name": "lintlane",
-  "version": "4.1.4",
+  "version": "4.2.0",
   "description": "Code-quality workflow for JavaScript, React and Next.js: orchestrates Biome, lint-staged, Husky, Commitizen and commitlint, with a local dashboard and CI",
   "license": "MIT",
   "repository": {
@@ -68,6 +68,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "commitizen": "4.3.2",
     "cz-conventional-changelog": "3.3.0",
+    "jest-diff": "30.5.2",
     "lint-staged": "16.4.0",
     "zod": "4.6.7"
   }

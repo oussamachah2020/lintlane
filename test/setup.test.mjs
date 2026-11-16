@@ -4,7 +4,16 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, symlinkSyn
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { classifyHook } from "../bin/project.mjs";
-import { gitOut, KIT_BIOME, KIT_DIR, read, runCli, tempDir, write } from "./helpers.mjs";
+import {
+  fakePackageManagers,
+  gitOut,
+  KIT_BIOME,
+  KIT_DIR,
+  read,
+  runCli,
+  tempDir,
+  write,
+} from "./helpers.mjs";
 
 const template = (name) => readFileSync(join(KIT_DIR, "templates", name), "utf8");
 
@@ -38,7 +47,7 @@ describe("init --dry-run", () => {
     const dir = project({ pkg: { name: "app", dependencies: { react: "19" } } });
     const before = read(dir, "package.json");
     const files = tree(dir);
-    const result = runCli(["init", "--dry-run"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--dry-run"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr + result.stdout);
     assert.match(result.stdout, /Dry run/);
     assert.match(result.stdout, /would run: npm install .*lintlane@/);
@@ -52,7 +61,7 @@ describe("init --dry-run", () => {
 
   it("does not install anything, even without --skip-install", () => {
     const dir = project();
-    const result = runCli(["init", "--dry-run"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--dry-run"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr + result.stdout);
     assert.equal(existsSync(join(dir, "node_modules")), false);
   });
@@ -61,10 +70,10 @@ describe("init --dry-run", () => {
 describe("init is idempotent and preserves what exists", () => {
   it("a second run reports everything up to date and changes nothing", () => {
     const dir = project();
-    assert.equal(runCli(["init", "--skip-install"], { cwd: dir }).status, 0);
+    assert.equal(runCli(["init", "--yes", "--skip-install"], { cwd: dir }).status, 0);
     const files = tree(dir);
     const pkg = read(dir, "package.json");
-    const second = runCli(["init", "--skip-install"], { cwd: dir });
+    const second = runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     assert.equal(second.status, 0, second.stderr);
     assert.match(second.stdout, /\.husky\/pre-commit is up to date/);
     assert.equal(read(dir, "package.json"), pkg);
@@ -78,7 +87,7 @@ describe("init is idempotent and preserves what exists", () => {
       config: { commitizen: { path: "cz-customizable" } },
     };
     const dir = project({ pkg, files: { ".commitlintrc.json": '{"extends":["x"]}\n' } });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr);
     const after = JSON.parse(read(dir, "package.json"));
     assert.deepEqual(after["lint-staged"], { "*.js": "eslint" });
@@ -95,7 +104,7 @@ describe("init is idempotent and preserves what exists", () => {
           '[ -f node_modules/lintlane/bin/commit-msg.mjs ] || exit 0\nnode node_modules/lintlane/bin/commit-msg.mjs "$1"\n',
       },
     });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(read(dir, ".husky/pre-commit"), template("pre-commit"));
     assert.equal(read(dir, ".husky/commit-msg"), template("commit-msg"));
@@ -104,7 +113,7 @@ describe("init is idempotent and preserves what exists", () => {
   it("warns about, and keeps, an edited hook that still calls removed files", () => {
     const custom = "npm run lint\nnode node_modules/lintlane/bin/pre-commit.mjs\n";
     const dir = project({ files: { ".husky/pre-commit": custom } });
-    const result = runCli(["init", "--skip-install", "--no-ci"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--skip-install", "--no-ci"], { cwd: dir });
     assert.equal(read(dir, ".husky/pre-commit"), custom);
     assert.match(result.stdout, /no longer ships/);
     assert.match(result.stdout, /templates\/pre-commit/);
@@ -114,7 +123,7 @@ describe("init is idempotent and preserves what exists", () => {
     const dir = project({
       pkg: { name: "app", devDependencies: { "@biomejs/biome": "2.2.0", husky: "9.0.0" } },
     });
-    const result = runCli(["init", "--dry-run"], { cwd: dir });
+    const result = runCli(["init", "--yes", "--dry-run"], { cwd: dir });
     assert.match(result.stdout, /would run: npm install --save-dev --save-exact lintlane@/);
     assert.doesNotMatch(result.stdout, /@biomejs\/biome[ @]/);
   });
@@ -147,7 +156,7 @@ describe("lintlane doctor", () => {
 
   it("passes on a healthy project and prints JSON with --json", () => {
     const dir = project({ pkg: { name: "app", devDependencies: { husky: "9.1.7" } } });
-    assert.equal(runCli(["init", "--skip-install"], { cwd: dir }).status, 0);
+    assert.equal(runCli(["init", "--yes", "--skip-install"], { cwd: dir }).status, 0);
     installed(dir);
     gitOut(dir, "config", "core.hooksPath", ".husky/_");
     const result = doctor(dir, "--json");
@@ -196,7 +205,7 @@ describe("lintlane doctor", () => {
 
   it("flags hooks that exist but git isn't using", () => {
     const dir = project({ pkg: { name: "app", devDependencies: { husky: "9.1.7" } } });
-    runCli(["init", "--skip-install"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     installed(dir);
     const report = JSON.parse(doctor(dir, "--json").stdout);
     assert.equal(byId(report, "hooks-path").status, "fail");
@@ -204,7 +213,7 @@ describe("lintlane doctor", () => {
 
   it("warns when CI doesn't run a check the project has", () => {
     const dir = project({ pkg: { name: "app", scripts: { test: "node --test" } } });
-    runCli(["init", "--skip-install"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     installed(dir);
     write(dir, ".github/workflows/biome.yml", "name: x\njobs: {}\n");
     const report = JSON.parse(doctor(dir, "--json").stdout);
@@ -226,7 +235,7 @@ describe("lintlane doctor", () => {
 
   it("changes nothing", () => {
     const dir = project();
-    runCli(["init", "--skip-install"], { cwd: dir });
+    runCli(["init", "--yes", "--skip-install"], { cwd: dir });
     const files = tree(dir);
     const pkg = read(dir, "package.json");
     doctor(dir);
@@ -239,9 +248,79 @@ it("preserves local tarball and version-range lintlane declarations", () => {
   for (const section of ["dependencies", "devDependencies"]) {
     for (const spec of ["file:../lintlane-4.1.2.tgz", "^4.1.1"]) {
       const dir = project({ pkg: { name: "app", [section]: { lintlane: spec } } });
-      const result = runCli(["init", "--dry-run"], { cwd: dir });
+      const result = runCli(["init", "--yes", "--dry-run"], { cwd: dir });
       assert.equal(result.status, 0);
       assert.doesNotMatch(result.stdout, /would run:.*lintlane@/);
     }
   }
+});
+
+describe("init reviews existing lint setups before any changes", () => {
+  for (const files of [
+    { "biome.jsonc": "// custom\n{}\n" },
+    { "eslint.config.mjs": "export default [];\n" },
+    { ".prettierrc": '{"semi":false}\n' },
+  ]) {
+    it(`requires explicit approval for ${Object.keys(files)[0]}`, () => {
+      const dir = project({ files });
+      const before = read(dir, "package.json");
+      const paths = tree(dir);
+      const fake = fakePackageManagers();
+      const result = runCli(["init"], { cwd: dir, env: fake.env, input: "yes\n" });
+      assert.equal(result.status, 1);
+      assert.match(result.stdout, /- a\/package.json/);
+      assert.match(result.stdout, /\+.*"check": "biome check/);
+      assert.match(result.stdout, /Nothing changed/);
+      assert.deepEqual(fake.calls(), []);
+      assert.equal(read(dir, "package.json"), before);
+      assert.deepEqual(tree(dir), paths);
+    });
+  }
+
+  it("shows compact context instead of replacing the entire file", () => {
+    const scripts = Object.fromEntries(
+      Array.from({ length: 30 }, (_, i) => [`task${i}`, `echo task${i}`]),
+    );
+    const dir = project({ pkg: { name: "app", scripts }, files: { "biome.json": "{}\n" } });
+    const before = read(dir, "package.json");
+    const result = runCli(["init", "--dry-run", "--skip-install"], {
+      cwd: dir,
+      env: { NO_COLOR: "1", FORCE_COLOR: "0" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /- a\/package.json/);
+    assert.match(result.stdout, /\+ b\/package.json/);
+    assert.match(result.stdout, /@@/);
+    assert.doesNotMatch(result.stdout, /echo task0/);
+    assert.equal(result.stdout.includes("\u001b["), false);
+    assert.equal(read(dir, "package.json"), before);
+  });
+
+  it("highlights terminal diffs when color is enabled", () => {
+    const dir = project({ files: { "biome.json": "{}\n" } });
+    const result = runCli(["init", "--dry-run", "--skip-install"], {
+      cwd: dir,
+      env: { FORCE_COLOR: "1", NO_COLOR: "" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes("\u001b[32m"));
+  });
+
+  it("applies an approved plan and preserves configs and installed dependencies", () => {
+    const custom = 'export default [{ rules: { "no-console": "error" } }];\n';
+    const dir = project({
+      pkg: { name: "app", scripts: { lint: "eslint .", prepare: "echo ready" } },
+      files: { "eslint.config.mjs": custom },
+    });
+    const fake = fakePackageManagers();
+    const result = runCli(["init", "--yes"], { cwd: dir, env: fake.env });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /- a\/package.json/);
+    assert.equal(fake.calls().length, 1);
+    const pkg = JSON.parse(read(dir, "package.json"));
+    assert.equal(pkg.scripts.lint, "eslint .");
+    assert.equal(pkg.scripts.prepare, "echo ready && husky");
+    assert.ok(pkg.devDependencies.lintlane);
+    assert.equal(read(dir, "eslint.config.mjs"), custom);
+  });
 });

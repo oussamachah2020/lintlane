@@ -64,20 +64,20 @@ npx lintlane init
 
 ## Commands
 
-| Command                     | What it does                                                                              |
-| --------------------------- | ----------------------------------------------------------------------------------------- |
-| `init [--dry-run]`          | Install and configure everything. Safe to re-run; never overwrites your config.           |
-| `doctor [--json]`           | Diagnose the setup. Read-only. Exit code 1 only if something is broken.                   |
-| `run [checks…]`             | Run the project's checks in order (`--list`, `--keep-going`).                             |
-| `check`, `check:fix`, `ci`  | Run `biome check`, `biome check --write`, `biome ci`.                                     |
-| `commit` (`c`)              | Guided Conventional Commit, run by Commitizen. Git flags go after `--`.                   |
-| `check-commit`              | Validate messages with commitlint: `--message`, `--commit-msg-file`, `--rev-range`, `-d`. |
-| `ui [--port n] [--no-open]` | The local dashboard.                                                                      |
+| Command                     | What it does                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `init [--dry-run]`          | Install and configure everything. Safe to re-run; never overwrites your config.             |
+| `doctor [--json]`           | Diagnose the setup. Read-only. Exit code 1 only if something is broken.                     |
+| `run [checks…]`             | Run the project's checks in order and print a pass/fail summary (`--list`, `--keep-going`). |
+| `check`, `check:fix`, `ci`  | Run `biome check`, `biome check --write`, `biome ci`.                                       |
+| `commit` (`c`)              | Guided Conventional Commit, run by Commitizen. Git flags go after `--`.                     |
+| `check-commit`              | Validate messages with commitlint: `--message`, `--commit-msg-file`, `--rev-range`, `-d`.   |
+| `ui [--port n] [--no-open]` | The local dashboard.                                                                        |
 
 ## `init` — one-time setup
 
 ```sh
-npx lintlane init [--dry-run] [--preset base|strict|next] [--no-hooks] [--no-commit-lint] [--no-ci] [--skip-install]
+npx lintlane init [--dry-run] [--yes] [--preset base|strict|next] [--no-hooks] [--no-commit-lint] [--no-ci] [--skip-install]
 ```
 
 It installs `@biomejs/biome`, `lintlane` and (with hooks) `husky` as exact dev
@@ -91,6 +91,41 @@ already pin is never bumped — then adds only what is missing:
 - `commitlint.config.mjs` and `config.commitizen` in `package.json`.
 - `.husky/pre-commit`, `commit-msg`, `prepare-commit-msg`, `pre-push`.
 - `.github/workflows/biome.yml`, generated from your [checks](#checks-one-config-for-cli-dashboard-and-ci).
+
+When linting or formatting is already configured, `init` shows compact, colorized file diffs with surrounding context and
+asks for approval before writing files, installing dependencies, or activating
+hooks. Enter `y` or `yes` to apply; the default is to cancel. Existing lint
+configs and scripts are preserved. The install command is listed separately;
+its dependency and lockfile changes are resolved by your package manager.
+Noninteractive sessions leave everything untouched unless you pass `--yes`
+(`-y`). Use `--dry-run` to review before approving automated setup.
+
+The report is grouped by area, so a re-run on a configured project reads like this:
+
+```text
+  lintlane  v4.2.0  ·  init
+
+  Project
+  ✔ Detected package manager: npm (package-lock.json)
+  ✔ Detected React Router (framework mode) — using preset "base"
+  ✔ Dependencies already installed
+
+  Configuration
+  ! biome.json already exists — make sure its "extends" includes "lintlane/biome"
+  ! Script "check" already exists — left untouched
+
+  Git hooks
+  ✔ .husky/pre-commit is up to date
+
+  CI
+  ! .github/workflows/biome.yml already exists — left untouched
+    ↳ Run `lintlane doctor` to compare it with your checks
+
+  ? Everything is in place. Finish setup? (y/N)
+```
+
+Output is colored in a terminal and plain when piped or in CI. Set `NO_COLOR=1`
+to turn colors off, or `FORCE_COLOR=1` to keep them on.
 
 **`--dry-run`** prints every action (including the install command) and changes
 nothing. **Re-running** is safe: whatever exists is reported and left alone. An
